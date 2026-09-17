@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+reactome/input/
+reactome/v[0-9]*/
+reactome/data/
+synthetic/v[0-9]*/
