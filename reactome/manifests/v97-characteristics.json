@@ -1,0 +1,627 @@
+{
+  "release": {
+    "version": "97",
+    "graph": "urn:sagebrain:reactome:v97",
+    "ttl_dir": "reactome/data/rdf",
+    "types_asserted": {
+      "biolink:GeneToPathwayAssociation": 161818,
+      "biolink:Gene": 11485,
+      "biolink:Pathway": 2883
+    },
+    "taxa_asserted": {
+      "NCBITaxon:9606": 14368
+    },
+    "statements_in_release_graph": 1179747,
+    "matches_void_triples": true,
+    "void": {
+      "dataset": "urn:sagebrain:reactome:v97",
+      "label": "Reactome v97 (Homo sapiens) -- SageBrain Tier 1 ingest",
+      "source": "https://doi.org/10.5281/zenodo.21383214",
+      "version": "V97",
+      "issued": "2026-06-01",
+      "license": "https://creativecommons.org/licenses/by/4.0/",
+      "triples": 1179747,
+      "in_taxon": "NCBITaxon:9606",
+      "generated_by": "urn:sagebrain:ingest:reactome:2026-08-23"
+    }
+  },
+  "sources": {
+    "header": {
+      "provenance": "https://doi.org/10.5281/zenodo.21383214",
+      "concept_doi": "https://doi.org/10.5281/zenodo.12763591",
+      "published": "2026-06",
+      "license": "cc-by-4.0"
+    },
+    "files": [
+      {
+        "filename": "ReactomePathways.txt",
+        "bytes": 1592393,
+        "md5": "63953262f948a43232e01ac18c9606d2",
+        "retrieved_from": "https://download.reactome.org/97/ReactomePathways.txt"
+      },
+      {
+        "filename": "ReactomePathwaysRelation.txt",
+        "bytes": 634259,
+        "md5": "4cd76055c4ea7d18308d5993f160533d",
+        "retrieved_from": "https://download.reactome.org/97/ReactomePathwaysRelation.txt"
+      },
+      {
+        "filename": "UniProt2Reactome_All_Levels.txt",
+        "bytes": 117823518,
+        "md5": "60949cad639e1c8567b7585a13fdc1ca",
+        "retrieved_from": "https://download.reactome.org/97/UniProt2Reactome_All_Levels.txt"
+      },
+      {
+        "filename": "Pathways2GoTerms_human.txt",
+        "bytes": 61112,
+        "md5": "f070821c7a6f638c536d6c17776022fb",
+        "retrieved_from": "https://download.reactome.org/97/Pathways2GoTerms_human.txt"
+      },
+      {
+        "filename": "hgnc_complete_set.txt",
+        "bytes": 16916967,
+        "md5": "7c6c597c15d7df29b61140cd987ac994",
+        "retrieved_from": "https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt"
+      }
+    ]
+  },
+  "files": {
+    "pathways.ttl": {
+      "bytes": 528783,
+      "statements": 11548
+    },
+    "associations.ttl": {
+      "bytes": 51087498,
+      "statements": 1167181
+    },
+    "go_crosswalk.ttl": {
+      "bytes": 55614,
+      "statements": 1018
+    },
+    "void.ttl": {
+      "bytes": 2747,
+      "statements": 15
+    }
+  },
+  "pathways": {
+    "count": 2883,
+    "with_gene_set": 2835,
+    "with_go_term": 1018,
+    "hierarchy": {
+      "part_of_edges": 2899,
+      "root_pathways": 29,
+      "leaf_pathways": 2035,
+      "pathways_with_multiple_parents": 34,
+      "cycles_detected": 0,
+      "parents_per_pathway": {
+        "n": 2883,
+        "mean": 1.01,
+        "min": 0,
+        "p25": 1,
+        "median": 1,
+        "p75": 1,
+        "p95": 1,
+        "max": 6
+      },
+      "children_per_pathway": {
+        "n": 2883,
+        "mean": 1.01,
+        "min": 0,
+        "p25": 0,
+        "median": 0,
+        "p75": 1,
+        "p95": 5,
+        "max": 69
+      },
+      "depth_below_root": {
+        "n": 2883,
+        "mean": 3.35,
+        "min": 0,
+        "p25": 2,
+        "median": 3,
+        "p75": 4,
+        "p95": 6,
+        "max": 11
+      },
+      "roots": [
+        {
+          "pathway": "REACT:R-HSA-109582",
+          "label": "Hemostasis",
+          "direct_children": 7
+        },
+        {
+          "pathway": "REACT:R-HSA-112316",
+          "label": "Neuronal System",
+          "direct_children": 4
+        },
+        {
+          "pathway": "REACT:R-HSA-1266738",
+          "label": "Developmental Biology",
+          "direct_children": 18
+        },
+        {
+          "pathway": "REACT:R-HSA-1430728",
+          "label": "Metabolism",
+          "direct_children": 15
+        },
+        {
+          "pathway": "REACT:R-HSA-1474165",
+          "label": "Reproduction",
+          "direct_children": 3
+        },
+        {
+          "pathway": "REACT:R-HSA-1474244",
+          "label": "Extracellular matrix organization",
+          "direct_children": 9
+        },
+        {
+          "pathway": "REACT:R-HSA-1500931",
+          "label": "Cell-Cell communication",
+          "direct_children": 3
+        },
+        {
+          "pathway": "REACT:R-HSA-162582",
+          "label": "Signal Transduction",
+          "direct_children": 17
+        },
+        {
+          "pathway": "REACT:R-HSA-1640170",
+          "label": "Cell Cycle",
+          "direct_children": 4
+        },
+        {
+          "pathway": "REACT:R-HSA-1643685",
+          "label": "Disease",
+          "direct_children": 12
+        },
+        {
+          "pathway": "REACT:R-HSA-168256",
+          "label": "Immune System",
+          "direct_children": 3
+        },
+        {
+          "pathway": "REACT:R-HSA-1852241",
+          "label": "Organelle biogenesis and maintenance",
+          "direct_children": 2
+        },
+        {
+          "pathway": "REACT:R-HSA-382551",
+          "label": "Transport of small molecules",
+          "direct_children": 11
+        },
+        {
+          "pathway": "REACT:R-HSA-392499",
+          "label": "Metabolism of proteins",
+          "direct_children": 9
+        },
+        {
+          "pathway": "REACT:R-HSA-397014",
+          "label": "Muscle contraction",
+          "direct_children": 3
+        },
+        {
+          "pathway": "REACT:R-HSA-4839726",
+          "label": "Chromatin organization",
+          "direct_children": 2
+        },
+        {
+          "pathway": "REACT:R-HSA-5357801",
+          "label": "Programmed Cell Death",
+          "direct_children": 2
+        },
+        {
+          "pathway": "REACT:R-HSA-5653656",
+          "label": "Vesicle-mediated transport",
+          "direct_children": 2
+        },
+        {
+          "pathway": "REACT:R-HSA-69306",
+          "label": "DNA Replication",
+          "direct_children": 3
+        },
+        {
+          "pathway": "REACT:R-HSA-73894",
+          "label": "DNA Repair",
+          "direct_children": 7
+        },
+        {
+          "pathway": "REACT:R-HSA-74160",
+          "label": "Gene expression (Transcription)",
+          "direct_children": 6
+        },
+        {
+          "pathway": "REACT:R-HSA-8953854",
+          "label": "Metabolism of RNA",
+          "direct_children": 14
+        },
+        {
+          "pathway": "REACT:R-HSA-8953897",
+          "label": "Cellular responses to stimuli",
+          "direct_children": 3
+        },
+        {
+          "pathway": "REACT:R-HSA-8963743",
+          "label": "Digestion and absorption",
+          "direct_children": 2
+        },
+        {
+          "pathway": "REACT:R-HSA-9609507",
+          "label": "Protein localization",
+          "direct_children": 4
+        },
+        {
+          "pathway": "REACT:R-HSA-9612973",
+          "label": "Autophagy",
+          "direct_children": 3
+        },
+        {
+          "pathway": "REACT:R-HSA-9709957",
+          "label": "Sensory Perception",
+          "direct_children": 4
+        },
+        {
+          "pathway": "REACT:R-HSA-9748784",
+          "label": "Drug ADME",
+          "direct_children": 8
+        },
+        {
+          "pathway": "REACT:R-HSA-9909396",
+          "label": "Circadian clock",
+          "direct_children": 9
+        }
+      ]
+    }
+  },
+  "genes": {
+    "count": 11485,
+    "with_symbol": 11485,
+    "in_an_association": 11485
+  },
+  "associations": {
+    "count": 161818,
+    "evidence": {
+      "TAS": 128016,
+      "IEA": 33802
+    },
+    "unmapped_evidence_codes": [],
+    "knowledge_sources": {
+      "infores:reactome": 161818
+    },
+    "source_accessions": 11651,
+    "isoform_accessions": 310
+  },
+  "gene_sets": {
+    "genes_per_pathway": {
+      "n": 2883,
+      "mean": 49.3,
+      "min": 0,
+      "p25": 5,
+      "median": 15,
+      "p75": 44,
+      "p95": 164,
+      "max": 2604
+    },
+    "pathways_per_gene": {
+      "n": 11485,
+      "mean": 12.38,
+      "min": 2,
+      "p25": 4,
+      "median": 6,
+      "p75": 12,
+      "p95": 41,
+      "max": 456
+    },
+    "pathways_without_genes": 48,
+    "scoring_band": {
+      "min_set_size": 15,
+      "max_set_size": 500,
+      "pathways_in_band": 1430,
+      "below_band": 1372,
+      "above_band": 33,
+      "note": "Sizes are over the full release. A scorer intersects these sets with its own expressed-gene universe first, so its in-band count will be lower."
+    },
+    "largest_pathways": [
+      {
+        "pathway": "REACT:R-HSA-162582",
+        "label": "Signal Transduction",
+        "genes": 2604
+      },
+      {
+        "pathway": "REACT:R-HSA-168256",
+        "label": "Immune System",
+        "genes": 2447
+      },
+      {
+        "pathway": "REACT:R-HSA-1430728",
+        "label": "Metabolism",
+        "genes": 2191
+      },
+      {
+        "pathway": "REACT:R-HSA-1643685",
+        "label": "Disease",
+        "genes": 2154
+      },
+      {
+        "pathway": "REACT:R-HSA-392499",
+        "label": "Metabolism of proteins",
+        "genes": 2143
+      },
+      {
+        "pathway": "REACT:R-HSA-1266738",
+        "label": "Developmental Biology",
+        "genes": 1562
+      },
+      {
+        "pathway": "REACT:R-HSA-74160",
+        "label": "Gene expression (Transcription)",
+        "genes": 1525
+      },
+      {
+        "pathway": "REACT:R-HSA-597592",
+        "label": "Post-translational protein modification",
+        "genes": 1501
+      },
+      {
+        "pathway": "REACT:R-HSA-5663205",
+        "label": "Infectious disease",
+        "genes": 1341
+      },
+      {
+        "pathway": "REACT:R-HSA-73857",
+        "label": "RNA Polymerase II Transcription",
+        "genes": 1331
+      },
+      {
+        "pathway": "REACT:R-HSA-212436",
+        "label": "Generic Transcription Pathway",
+        "genes": 1246
+      },
+      {
+        "pathway": "REACT:R-HSA-168249",
+        "label": "Innate Immune System",
+        "genes": 1197
+      },
+      {
+        "pathway": "REACT:R-HSA-1280218",
+        "label": "Adaptive Immune System",
+        "genes": 1138
+      },
+      {
+        "pathway": "REACT:R-HSA-9824446",
+        "label": "Viral Infection Pathways",
+        "genes": 1117
+      },
+      {
+        "pathway": "REACT:R-HSA-8953897",
+        "label": "Cellular responses to stimuli",
+        "genes": 909
+      },
+      {
+        "pathway": "REACT:R-HSA-1280215",
+        "label": "Cytokine Signaling in Immune system",
+        "genes": 840
+      },
+      {
+        "pathway": "REACT:R-HSA-2262752",
+        "label": "Cellular responses to stress",
+        "genes": 799
+      },
+      {
+        "pathway": "REACT:R-HSA-556833",
+        "label": "Metabolism of lipids",
+        "genes": 756
+      },
+      {
+        "pathway": "REACT:R-HSA-8953854",
+        "label": "Metabolism of RNA",
+        "genes": 740
+      },
+      {
+        "pathway": "REACT:R-HSA-5653656",
+        "label": "Vesicle-mediated transport",
+        "genes": 736
+      }
+    ],
+    "hub_genes": [
+      {
+        "gene": "HGNC:10417",
+        "symbol": "RPS27A",
+        "pathways": 456
+      },
+      {
+        "gene": "HGNC:12458",
+        "symbol": "UBA52",
+        "pathways": 449
+      },
+      {
+        "gene": "HGNC:12463",
+        "symbol": "UBB",
+        "pathways": 425
+      },
+      {
+        "gene": "HGNC:12468",
+        "symbol": "UBC",
+        "pathways": 425
+      },
+      {
+        "gene": "HGNC:10845",
+        "symbol": "SEM1",
+        "pathways": 198
+      },
+      {
+        "gene": "HGNC:9553",
+        "symbol": "PSMC6",
+        "pathways": 184
+      },
+      {
+        "gene": "HGNC:16889",
+        "symbol": "PSMD14",
+        "pathways": 182
+      },
+      {
+        "gene": "HGNC:4566",
+        "symbol": "GRB2",
+        "pathways": 182
+      },
+      {
+        "gene": "HGNC:9531",
+        "symbol": "PSMA2",
+        "pathways": 182
+      },
+      {
+        "gene": "HGNC:9534",
+        "symbol": "PSMA5",
+        "pathways": 182
+      },
+      {
+        "gene": "HGNC:9537",
+        "symbol": "PSMB1",
+        "pathways": 182
+      },
+      {
+        "gene": "HGNC:9544",
+        "symbol": "PSMB7",
+        "pathways": 182
+      },
+      {
+        "gene": "HGNC:9547",
+        "symbol": "PSMC1",
+        "pathways": 182
+      },
+      {
+        "gene": "HGNC:9530",
+        "symbol": "PSMA1",
+        "pathways": 181
+      },
+      {
+        "gene": "HGNC:9532",
+        "symbol": "PSMA3",
+        "pathways": 181
+      },
+      {
+        "gene": "HGNC:9533",
+        "symbol": "PSMA4",
+        "pathways": 181
+      },
+      {
+        "gene": "HGNC:9535",
+        "symbol": "PSMA6",
+        "pathways": 181
+      },
+      {
+        "gene": "HGNC:9536",
+        "symbol": "PSMA7",
+        "pathways": 181
+      },
+      {
+        "gene": "HGNC:9539",
+        "symbol": "PSMB2",
+        "pathways": 181
+      },
+      {
+        "gene": "HGNC:9540",
+        "symbol": "PSMB3",
+        "pathways": 181
+      }
+    ]
+  },
+  "propagation": {
+    "note": "UniProt2Reactome_All_Levels.txt is already transitively closed up the hierarchy; per-pathway gene counts are not independent categories and must not be propagated again.",
+    "child_parent_pairs_compared": 2851,
+    "child_genes_in_parent": {
+      "n": 2851,
+      "mean": 1.0,
+      "min": 1,
+      "p25": 1,
+      "median": 1,
+      "p75": 1,
+      "p95": 1,
+      "max": 1
+    },
+    "fully_contained_children": 2851,
+    "fully_contained_fraction": 1.0,
+    "identical_gene_set_groups": 160,
+    "pathways_in_identical_groups": 421,
+    "largest_identical_group": [
+      {
+        "pathway": "REACT:R-HSA-9702506",
+        "label": "Drug resistance of FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702509",
+        "label": "FLT3 mutants bind TKIs"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702569",
+        "label": "KW2449-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702577",
+        "label": "semaxanib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702581",
+        "label": "crenolanib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702590",
+        "label": "gilteritinib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702596",
+        "label": "lestaurtinib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702600",
+        "label": "midostaurin-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702605",
+        "label": "pexidartinib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702614",
+        "label": "ponatinib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702620",
+        "label": "quizartinib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702624",
+        "label": "sorafenib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702632",
+        "label": "sunitinib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702636",
+        "label": "tandutinib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9702998",
+        "label": "linifanib-resistant FLT3 mutants"
+      },
+      {
+        "pathway": "REACT:R-HSA-9703009",
+        "label": "tamatinib-resistant FLT3 mutants"
+      }
+    ]
+  },
+  "go_crosswalk": {
+    "pathways_with_a_term": 1018,
+    "edges": 1018,
+    "terms_per_pathway": {
+      "n": 1018,
+      "mean": 1.0,
+      "min": 1,
+      "p25": 1,
+      "median": 1,
+      "p75": 1,
+      "p95": 1,
+      "max": 1
+    },
+    "note": "skos:closeMatch, not owl:equivalentClass: Reactome pathways and GO BP terms are not co-extensive."
+  }
+}

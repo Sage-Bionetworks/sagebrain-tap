@@ -1,0 +1,11 @@
+services:
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:0.5.4
+    command: serve --location /data --bind 0.0.0.0:7878
+    ports:
+      - "127.0.0.1:${OXIGRAPH_PORT:-7010}:7878"
+    volumes:
+      - oxigraph-data:/data
+
+volumes:
+  oxigraph-data:

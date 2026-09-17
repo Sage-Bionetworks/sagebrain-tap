@@ -1,0 +1,10 @@
+# Reactome v97 source manifest
+# provenance (authoritative): https://doi.org/10.5281/zenodo.21383214
+# concept DOI: https://doi.org/10.5281/zenodo.12763591
+# published: 2026-06  license: cc-by-4.0
+filename	bytes	md5	retrieved_from
+ReactomePathways.txt	1592393	63953262f948a43232e01ac18c9606d2	https://download.reactome.org/97/ReactomePathways.txt
+ReactomePathwaysRelation.txt	634259	4cd76055c4ea7d18308d5993f160533d	https://download.reactome.org/97/ReactomePathwaysRelation.txt
+UniProt2Reactome_All_Levels.txt	117823518	60949cad639e1c8567b7585a13fdc1ca	https://download.reactome.org/97/UniProt2Reactome_All_Levels.txt
+Pathways2GoTerms_human.txt	61112	f070821c7a6f638c536d6c17776022fb	https://download.reactome.org/97/Pathways2GoTerms_human.txt
+hgnc_complete_set.txt	16916967	7c6c597c15d7df29b61140cd987ac994	https://storage.googleapis.com/public-download-files/hgnc/tsv/tsv/hgnc_complete_set.txt

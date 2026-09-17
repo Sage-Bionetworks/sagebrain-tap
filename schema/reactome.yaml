@@ -1,0 +1,282 @@
+id: https://w3id.org/sagebrain/reactome
+name: sagebrain-reactome
+title: SageBrain Reactome Tier 1 Ingest
+description: >-
+  LinkML definitions for the Reactome Tier 1 RDF ingest: pathway nodes, the
+  pathway hierarchy, the GO crosswalk, gene nodes, and the reified
+  gene-to-pathway association that joins the last two.
+
+  Scope is Homo sapiens (NCBITaxon:9606) only. Species is carried on every node
+  via biolink:in_taxon, so widening scope later is a filter change and a reload,
+  not a remodel.
+
+  Reaction-level mechanism (individual reactions, catalysis, PTM-specific entity
+  states, causal ordering, complex composition) is Tier 2 and deliberately absent.
+  Tier 2 is additive and attaches to the same pathway URIs minted here.
+
+license: https://creativecommons.org/licenses/by/4.0/
+default_prefix: sagebrain
+default_range: string
+
+prefixes:
+  # One model namespace, owned by ontology/main/sagebrain.ttl in the
+  # sagebrain-model repo. A term this ingest needs before the model has
+  # ratified it is minted here anyway and reported by acceptance check 11.
+  # See shared/rdf.py NAMESPACES.
+  sagebrain: https://w3id.org/synapse/sagebrain#
+  linkml: https://w3id.org/linkml/
+  biolink: https://w3id.org/biolink/vocab/
+  REACT: "https://identifiers.org/reactome:"
+  UNIPROT: "https://identifiers.org/uniprot:"
+  HGNC: "https://identifiers.org/hgnc:"
+  NCBITaxon: http://purl.obolibrary.org/obo/NCBITaxon_
+  GO: http://purl.obolibrary.org/obo/GO_
+  ECO: http://purl.obolibrary.org/obo/ECO_
+  RO: http://purl.obolibrary.org/obo/RO_
+  infores: https://w3id.org/biolink/infores/
+  skos: http://www.w3.org/2004/02/skos/core#
+  rdfs: http://www.w3.org/2000/01/rdf-schema#
+  dcterms: http://purl.org/dc/terms/
+  pav: http://purl.org/pav/
+  prov: http://www.w3.org/ns/prov#
+  void: http://rdfs.org/ns/void#
+  xsd: http://www.w3.org/2001/XMLSchema#
+
+imports:
+  - linkml:types
+
+# Pinned Biolink version. biolink:participates_in, biolink:GeneToPathwayAssociation,
+# biolink:has_evidence, biolink:primary_knowledge_source, biolink:in_taxon and
+# biolink:part_of were all verified present in this release before the predicates
+# below were finalised (plan section 4 and open decision 4).
+settings:
+  biolink_version: 4.4.4
+
+# ── enums ─────────────────────────────────────────────────────────────────────
+
+enums:
+
+  EvidenceCodeEnum:
+    description: >-
+      Reactome's curated/inferred split, carried through from column 5 of
+      UniProt2Reactome_All_Levels.txt. This distinction is lost in the BioPAX
+      export; it survives in the flat files. Any code outside this set is a hard
+      error at transform time, never a default.
+    permissible_values:
+      "ECO:0000304":
+        title: traceable author statement
+        description: Reactome TAS -- manually curated by a Reactome curator.
+      "ECO:0000501":
+        title: inferred from electronic annotation
+        description: Reactome IEA -- orthology-projected via Ensembl Compara.
+
+  TaxonEnum:
+    description: >-
+      In-scope taxa. Human only by decision, not by schema limitation; adding a
+      value here is not sufficient to widen scope (see the transform filters).
+    permissible_values:
+      "NCBITaxon:9606":
+        title: Homo sapiens
+
+# ── slots ─────────────────────────────────────────────────────────────────────
+
+slots:
+
+  id:
+    identifier: true
+    range: uriorcurie
+    description: Stable identifier for the node.
+
+  name:
+    slot_uri: rdfs:label
+    description: Human-readable label.
+
+  in_taxon:
+    slot_uri: biolink:in_taxon
+    range: TaxonEnum
+    required: true
+    description: >-
+      Emitted on every node even though it is constant under the current scope.
+      It costs almost nothing, makes the scope explicit in the data rather than
+      only in prose, and means widening scope later does not require rewriting
+      existing triples.
+
+  part_of:
+    slot_uri: biolink:part_of
+    range: Pathway
+    multivalued: true
+    description: >-
+      Parent pathway in the Reactome hierarchy. Reactome's hierarchy is hasEvent
+      -- mereological containment, NOT subsumption. Never map this to
+      rdfs:subClassOf: doing so makes any reasoner in the stack draw wrong
+      inferences and conflates "is a kind of signaling" with "is a component of".
+      Traverse with biolink:part_of*.
+    exact_mappings:
+      - BFO:0000050
+
+  close_match:
+    slot_uri: skos:closeMatch
+    range: uriorcurie
+    multivalued: true
+    description: >-
+      GO Biological Process crosswalk. skos:closeMatch, never owl:equivalentClass:
+      Reactome pathways and GO BP terms are not co-extensive, and the granularity
+      mismatch is structural. Asserting equivalence corrupts anything downstream
+      that reasons over it.
+
+  subject:
+    slot_uri: biolink:subject
+    range: uriorcurie
+    required: true
+
+  object:
+    slot_uri: biolink:object
+    range: uriorcurie
+    required: true
+
+  predicate:
+    slot_uri: biolink:predicate
+    range: uriorcurie
+    required: true
+
+  has_evidence:
+    slot_uri: biolink:has_evidence
+    range: EvidenceCodeEnum
+    required: true
+    description: >-
+      Always populated, never collapsed to a constant. Under human-only scope the
+      overwhelming majority is TAS, but IEA rows do occur and the proportion is
+      not negligible -- keeping the slot populated is the difference between a
+      filter change and a remodel if scope widens.
+
+  primary_knowledge_source:
+    slot_uri: biolink:primary_knowledge_source
+    range: uriorcurie
+    required: true
+
+  original_subject:
+    slot_uri: biolink:original_subject
+    range: string
+    description: >-
+      The UniProt accession as Reactome stated it, before this ingest normalised
+      the subject to HGNC. Biolink's own slot for exactly that, so a Biolink
+      consumer needs no local knowledge to find it.
+
+      A string, not a CURIE reference: biolink:original_subject is declared
+      owl:DatatypeProperty in the pinned 4.4.4 release, and emitting an IRI for a
+      datatype property is incoherent for anything that reasons over the graph.
+      The accession is therefore recorded but not traversable, which is the right
+      trade while nothing in the graph describes UniProt entities -- an IRI with
+      no typed node behind it is not a join. If a source that makes statements
+      about UniProt entities is ingested, type those entities as biolink:Protein
+      (biolink:ProteinIsoform for suffixed accessions) and link them from the
+      gene with biolink:has_gene_product, rather than minting a local term.
+
+      Kept at all because Reactome is natively gene-*product*-level and becomes
+      more so at Tier 2. Collapsing to HGNC is correct for discovery but is a
+      one-way door unless the accession is kept. Isoform suffixes are preserved
+      here even though they are stripped for identifier resolution.
+
+# ── classes ───────────────────────────────────────────────────────────────────
+
+classes:
+
+  Pathway:
+    class_uri: biolink:Pathway
+    description: >-
+      A Reactome pathway. Identified by its Reactome stable ID under
+      identifiers.org; no SageBrain-local URIs are minted for external entities.
+    slots:
+      - id
+      - name
+      - in_taxon
+      - part_of
+      - close_match
+    slot_usage:
+      id:
+        pattern: "^REACT:R-HSA-\\d+$"
+        description: Reactome stable ID, e.g. REACT:R-HSA-5673001.
+
+  Gene:
+    class_uri: biolink:Gene
+    description: >-
+      A gene participating in at least one in-scope pathway, identified by HGNC.
+      Emitted as a typed node with its symbol and taxon, not left as a bare
+      association endpoint: a consumer can enumerate or label the genes in a
+      release without reading the association table, and a join against a gene
+      the ingest never asserted fails loudly instead of matching nothing.
+
+      Gene-level by choice. Reactome is natively gene-*product*-level, so the
+      UniProt accession each association was derived from is retained on the
+      association itself (see original_subject) -- collapsing to HGNC is correct
+      for discovery, but only reversible if the accession survives.
+    slots:
+      - id
+      - name
+      - in_taxon
+    slot_usage:
+      id:
+        pattern: "^HGNC:\\d+$"
+        description: HGNC identifier, e.g. HGNC:7765.
+      name:
+        description: HGNC-approved symbol, e.g. NF1.
+
+  GeneToPathwayAssociation:
+    class_uri: biolink:GeneToPathwayAssociation
+    description: >-
+      Reified gene-participates-in-pathway association, mirroring the association
+      pattern used elsewhere in the graph.
+
+      Because UniProt2Reactome_All_Levels.txt is pre-propagated, a gene appears
+      against every ancestor pathway, not just the leaf it participates in.
+      Association counts per pathway are therefore NON-INDEPENDENT: anything doing
+      enrichment must account for the hierarchy and must not feed raw counts to a
+      hypergeometric test. This is asserted on the graph itself in the VoID
+      metadata, not only in documentation.
+    slots:
+      - subject
+      - object
+      - predicate
+      - has_evidence
+      - primary_knowledge_source
+      - original_subject
+    slot_usage:
+      subject:
+        description: The gene participating in the pathway.
+        range: Gene
+        pattern: "^HGNC:\\d+$"
+      object:
+        description: The pathway the gene participates in.
+        range: Pathway
+      predicate:
+        description: >-
+          Fixed to biolink:participates_in, verified present in the pinned Biolink
+          release (4.4.4) before this was finalised -- the gene-to-pathway
+          predicate has moved between Biolink releases.
+        equals_string: "biolink:participates_in"
+      primary_knowledge_source:
+        equals_string: "infores:reactome"
+
+  Dataset:
+    class_uri: void:Dataset
+    description: >-
+      Per-release named graph metadata. Graph identity is per release, not per
+      species: if scope widens, additional species join the same graph and are
+      distinguished by biolink:in_taxon. Species-scoped graph names would
+      fragment the versioning story for no benefit.
+    attributes:
+      source:
+        slot_uri: dcterms:source
+        range: uriorcurie
+        description: The Zenodo version DOI for the release. Never the moving download pointer.
+      version:
+        slot_uri: pav:version
+      issued:
+        slot_uri: dcterms:issued
+        range: date
+      license:
+        slot_uri: dcterms:license
+        range: uriorcurie
+      was_generated_by:
+        slot_uri: prov:wasGeneratedBy
+        range: uriorcurie

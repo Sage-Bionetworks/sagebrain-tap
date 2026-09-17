@@ -1,0 +1,148 @@
+"""Write human pathway nodes and biolink:part_of hierarchy to pathways.ttl.
+
+The filtered ID set goes to ../interim/pathway_ids.txt for the other transforms."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from .common import (
+    HUMAN,
+    IngestError,
+    SpeciesFilter,
+    TurtleWriter,
+    literal,
+    log,
+    pathway_curie,
+    read_tsv,
+)
+
+
+def load_pathways(path: Path, species_filter: SpeciesFilter) -> dict[str, str]:
+    """Return {stable_id: name} for in-scope pathways.
+
+    Filtered on the species-name column (column 3), never on the stable-ID infix.
+    """
+    pathways: dict[str, str] = {}
+    for row in read_tsv(path, expected_fields=3, has_header=False):
+        if not species_filter.keep_row(row, species_column=3):
+            continue
+        stable_id, name = row[0].strip(), row[1].strip()
+        if stable_id in pathways and pathways[stable_id] != name:
+            raise IngestError(
+                f"Conflicting names for {stable_id}: "
+                f"{pathways[stable_id]!r} vs {name!r}"
+            )
+        pathways[stable_id] = name
+    return pathways
+
+
+def load_relations(
+    path: Path, in_scope: set[str]
+) -> tuple[list[tuple[str, str]], int, list[tuple[str, str]]]:
+    """Return (kept relations, dropped count, mixed-scope relations).
+
+    The relation file has no species column, so it is filtered by membership
+    against the already-filtered pathway ID set. Filtering it independently --
+    or by stable-ID pattern -- produces dangling edges or, worse, non-human
+    subtrees hanging off human parents (plan section 8).
+
+    A *mixed* row (one endpoint in scope, the other not) would mean Reactome's
+    hierarchy crosses species, which it should never do. Those are surfaced
+    rather than silently dropped, because they would indicate the ID set itself
+    is wrong.
+    """
+    kept: list[tuple[str, str]] = []
+    mixed: list[tuple[str, str]] = []
+    dropped = 0
+    for row in read_tsv(path, expected_fields=2, has_header=False):
+        parent, child = row[0].strip(), row[1].strip()
+        parent_in, child_in = parent in in_scope, child in in_scope
+        if parent_in and child_in:
+            kept.append((parent, child))
+        else:
+            dropped += 1
+            if parent_in != child_in:
+                mixed.append((parent, child))
+    return kept, dropped, mixed
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--indir", type=Path, required=True)
+    parser.add_argument("--outdir", type=Path, required=True)
+    parser.add_argument("--interim-dir", type=Path, default=None,
+                        help="Where pathway_ids.txt goes (default: a sibling 'interim/' "
+                             "next to --outdir). Not Turtle, so never --outdir itself.")
+    parser.add_argument("--species", default=HUMAN, help=f"Species name to keep (default: {HUMAN!r})")
+    args = parser.parse_args()
+
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    interim_dir = args.interim_dir or (args.outdir.parent / "interim")
+    interim_dir.mkdir(parents=True, exist_ok=True)
+    species_filter = SpeciesFilter(species_name=args.species)
+    taxon = species_filter.taxon_curie
+
+    log("Reading pathway nodes ...")
+    pathways = load_pathways(args.indir / "ReactomePathways.txt", species_filter)
+    log(f"  {species_filter.summary()}")
+    log(f"  in-scope pathways: {len(pathways):,}")
+    if not pathways:
+        raise IngestError(
+            f"No pathways matched species {args.species!r}. Check the species name spelling."
+        )
+
+    in_scope = set(pathways)
+
+    log("Reading hierarchy ...")
+    relations, dropped, mixed = load_relations(
+        args.indir / "ReactomePathwaysRelation.txt", in_scope
+    )
+    log(f"  kept {len(relations):,} edges, dropped {dropped:,} out-of-scope edges")
+    if mixed:
+        raise IngestError(
+            f"{len(mixed)} hierarchy edges cross the scope boundary "
+            f"(one endpoint in scope, one not), e.g. {mixed[:3]}. "
+            "Reactome's hierarchy should never cross species -- the pathway ID "
+            "set or the relation file is inconsistent."
+        )
+
+    parents_of: dict[str, list[str]] = {}
+    for parent, child in relations:
+        parents_of.setdefault(child, []).append(parent)
+
+    roots = sum(1 for p in pathways if p not in parents_of)
+    log(f"  root pathways (no parent): {roots:,}")
+
+    output = args.outdir / "pathways.ttl"
+    with open(output, "w", encoding="utf-8") as handle:
+        writer = TurtleWriter(handle)
+        writer.comment(
+            "Reactome pathway nodes and hierarchy.\n"
+            "Hierarchy is biolink:part_of (mereological containment, hasEvent),\n"
+            "NEVER rdfs:subClassOf -- Reactome's hierarchy is not subsumption.\n"
+            f"Scope: {args.species} ({taxon}).\n"
+            "Generated by reactome/transform_pathways.py"
+        )
+        for stable_id in sorted(pathways):
+            pairs = [
+                ("a", "biolink:Pathway"),
+                ("rdfs:label", literal(pathways[stable_id])),
+                ("biolink:in_taxon", taxon),
+            ]
+            for parent in sorted(parents_of.get(stable_id, [])):
+                pairs.append(("biolink:part_of", pathway_curie(parent)))
+            writer.statements(pathway_curie(stable_id), pairs)
+
+    ids_path = interim_dir / "pathway_ids.txt"
+    ids_path.write_text("\n".join(sorted(in_scope)) + "\n", encoding="utf-8")
+
+    log(f"\nWrote {writer.triples:,} triples -> {output}")
+    log(f"Wrote {len(in_scope):,} in-scope pathway IDs -> {ids_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
