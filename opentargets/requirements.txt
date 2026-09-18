@@ -1,0 +1,2 @@
+pyoxigraph==0.5.4
+pyarrow>=16.0.0

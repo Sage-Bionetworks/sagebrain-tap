@@ -1,0 +1,13 @@
+# Open Targets Platform 26.06 source manifest
+# release: https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/26.06/output/
+# provenance anchor: sha1(release_data_integrity) = e49fc309e6039938e86ad763634abd85e470314e
+# published: 2026-06-23  license: CC0-1.0
+# sha1 is upstream's own digest; sha256 is ours over the same bytes.
+# rows is the dataset total, repeated on each of its parts.
+dataset	filename	bytes	rows	sha1_upstream	sha256
+drug_molecule	part-00000-5581d2c3-048b-4097-934f-51cec06d7ff0-c000.snappy.parquet	14647216	22407	776153af67920b1d6efdf32fcf18012190741d63	d98d7e4e6e3c7a91fdd915c7dd2f5f8e07504da73fec22880bf4aca10fc524da
+drug_mechanism_of_action	part-00000-10b94b1b-f29a-440c-98e0-c91862b6d2a8-c000.snappy.parquet	281271	6500	e8240d974015ba635934bfd851c05fe954db3559	949aedc4717356279877da143a13cf11f267f96d062fe0e12c1c44816959cb4a
+drug_mechanism_of_action	part-00001-10b94b1b-f29a-440c-98e0-c91862b6d2a8-c000.snappy.parquet	299939	6500	9f02b33f3727e2d60d266c7b6761d88d051aff55	4a02cef4c182bb0ed20d341c6c4553f6c839b02f3217777fb65993a38e456a29
+clinical_indication	clinical_indication.parquet	4970713	86468	f0d918b0e48e966b51f77b465ab7d3820e6850e3	30f0ddca0432de28fd066e87c2831c90e541296fc785704edf909c08bd7d766a
+clinical_report	clinical_report.parquet	74437645	289955	987c9489fc68a2154e116af444443412001ab14f	92b06403af38d7a1c4f6c50581bec90f85a9216428ca1333f60b7e66ccab2ab4
+disease	disease.parquet	7150787	47080	5c214355253c0c8d84ab9c2317abb9ed771d5569	b328c5e775bc40d954f2e058aa59e8e972f2883a262d096f8dffe365736a1aed

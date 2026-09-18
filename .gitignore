@@ -5,3 +5,5 @@ reactome/input/
 reactome/v[0-9]*/
 reactome/data/
 synthetic/v[0-9]*/
+opentargets/input/
+opentargets/[0-9]*/
