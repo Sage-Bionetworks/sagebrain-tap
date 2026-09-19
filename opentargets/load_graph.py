@@ -45,11 +45,11 @@ SCOPE_NOTE = (
 )
 
 STAGE_NOTE = (
-    "sagebrain:maxClinicalStage is a property of a drug-disease EDGE, not of a drug. "
+    "sagebrain:max_clinical_stage is a property of a drug-disease EDGE, not of a drug. "
     "It is the maximum over the clinical reports behind that one pair, so a drug that "
     "failed phase 3 for one disease and was approved for another carries both values "
     "on different edges. Never quote a stage without its indication. The separate "
-    "sagebrain:maximumClinicalStage on a molecule is the maximum over ALL of its "
+    "sagebrain:overall_clinical_stage on a molecule is the maximum over ALL of its "
     "indications and says nothing about any particular disease. Approval facts are "
     "for specific indications and populations and are not treatment guidance."
 )
@@ -61,7 +61,7 @@ PREDICATE_NOTE = (
 )
 
 TARGET_TYPE_NOTE = (
-    "sagebrain:targetType decides what a mechanism edge claims. For 'single protein' "
+    "sagebrain:target_type decides what a mechanism edge claims. For 'single protein' "
     "the edge is a drug-to-target pair. For 'protein family', 'protein complex', "
     "'selectivity group' and the rest, ChEMBL's target is a named GROUP and the edge "
     "asserts membership of it -- trametinib's 'MEK1/2 inhibitor' row yields an edge to "
@@ -132,7 +132,7 @@ def build_void(release: str, metadata: dict, triples: int, run_date: str,
         log("WARNING: no provenance anchor in release.json -- VoID will not record "
             "which bytes this graph was built from. Run download_sources.py.")
     else:
-        pairs.append(("sagebrain:sourceIntegrityDigest", literal(f"sha1:{anchor}")))
+        pairs.append(("sagebrain:source_integrity_digest", literal(f"sha1:{anchor}")))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as handle:

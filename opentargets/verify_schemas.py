@@ -42,10 +42,14 @@ from .common import (
 #: the disease-id prefix audit, which is checked against DISEASE_IRI_BASES keys.
 VOCABULARY_CHECKS = [
     ("drug_molecule", "drugType", DRUG_TYPES, "DRUG_TYPES"),
-    ("drug_molecule", "maximumClinicalStage", frozenset(CLINICAL_STAGES), "CLINICAL_STAGES"),
+    ("drug_molecule", "maximumClinicalStage", CLINICAL_STAGES, "CLINICAL_STAGES"),
     ("drug_mechanism_of_action", "actionType", ACTION_TYPES, "ACTION_TYPES"),
     ("drug_mechanism_of_action", "targetType", TARGET_TYPES, "TARGET_TYPES"),
-    ("clinical_indication", "maxClinicalStage", frozenset(CLINICAL_STAGES), "CLINICAL_STAGES"),
+    ("clinical_indication", "maxClinicalStage", CLINICAL_STAGES, "CLINICAL_STAGES"),
+    # Audited even though clinical_report is not projected: it is the only dataset
+    # using PHASE_4 and WITHDRAWAL, and leaving it out of the gate meant the
+    # vocabulary looked complete while being short two values.
+    ("clinical_report", "clinicalStage", CLINICAL_STAGES, "CLINICAL_STAGES"),
 ]
 
 

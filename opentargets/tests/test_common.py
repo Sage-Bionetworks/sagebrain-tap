@@ -73,7 +73,27 @@ class Vocabularies(unittest.TestCase):
 
     def test_unknown_stage_raises(self):
         with self.assertRaises(common.IngestError):
-            common.stage_rank("PHASE_4")
+            common.stage_rank("PHASE_5")
+
+    def test_phase_4_outranks_approval(self):
+        """Phase-4 studies are post-marketing, so they sit above approval."""
+        self.assertGreater(common.stage_rank("PHASE_4"),
+                           common.stage_rank("APPROVAL"))
+
+    def test_withdrawal_is_valid_but_unrankable(self):
+        """A withdrawn drug reached approval then was pulled. Ranking it either
+        way asserts something false, so ranking refuses rather than guesses."""
+        self.assertIn("WITHDRAWAL", common.CLINICAL_STAGES)
+        self.assertNotIn("WITHDRAWAL", common.CLINICAL_STAGE_RANK)
+        with self.assertRaises(common.IngestError) as caught:
+            common.stage_rank("WITHDRAWAL")
+        self.assertIn("CLINICAL_STAGE_ORDER", str(caught.exception))
+
+    def test_report_only_stages_are_still_enforced(self):
+        """clinical_report is not projected, but its vocabulary is still gated."""
+        for stage in ("PHASE_4", "WITHDRAWAL"):
+            common.check_vocabulary(stage, common.CLINICAL_STAGES,
+                                    "clinicalStage", "CLINICAL_STAGES")
 
     def test_group_target_types_are_not_single_targets(self):
         """The distinction a consumer must filter on to avoid over-counting."""

@@ -87,7 +87,7 @@ def transform(input_dir: Path, out_path: Path, resolver: HgncResolver,
             "Open Targets drug_mechanism_of_action -> compound/gene edges.\n"
             "Ensembl target ids are resolved to HGNC so genes are one kind of node\n"
             "across this repo; the Ensembl id is kept as biolink:original_object.\n"
-            "sagebrain:targetType distinguishes a single-protein edge from membership\n"
+            "sagebrain:target_type distinguishes a single-protein edge from membership\n"
             "of a named target family or complex -- they are not the same claim."
         )
 
@@ -127,10 +127,10 @@ def transform(input_dir: Path, out_path: Path, resolver: HgncResolver,
                                  iri(expand(chembl_curie(chembl_id)))),
                                 ("biolink:object", iri(expand(hgnc_curie(hgnc_id)))),
                                 ("biolink:predicate", "biolink:affects"),
-                                ("sagebrain:actionType", literal(action)),
-                                ("sagebrain:mechanismOfAction", literal(mechanism)),
-                                ("sagebrain:targetType", literal(target_type)),
-                                ("sagebrain:targetName", literal(target_name)),
+                                ("sagebrain:action_type", literal(action)),
+                                ("sagebrain:mechanism_of_action", literal(mechanism)),
+                                ("sagebrain:target_type", literal(target_type)),
+                                ("sagebrain:target_name", literal(target_name)),
                                 ("biolink:original_object",
                                  literal(ensembl_curie(ensembl_id))),
                                 ("biolink:primary_knowledge_source", OPENTARGETS_SOURCE),

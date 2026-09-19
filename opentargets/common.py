@@ -124,13 +124,33 @@ DATASETS: dict[str, Dataset] = {
 
 # ── controlled vocabularies (complete at 26.06; membership enforced) ──────────
 
-#: Every ``maxClinicalStage`` in clinical_indication and every
-#: ``maximumClinicalStage`` in drug_molecule at 26.06.
+#: Every clinical-stage value any pinned dataset uses at 26.06:
+#: ``clinical_indication.maxClinicalStage``, ``drug_molecule.maximumClinicalStage``
+#: and ``clinical_report.clinicalStage``. Membership is enforced.
 #:
-#: Ordered weakest to strongest so a consumer can compare stages without
-#: hardcoding the order, and so "highest stage reached" is expressible. UNKNOWN
-#: sorts first: it means the source recorded no phase, not an early one.
-CLINICAL_STAGES = (
+#: ``clinical_report`` is the one that widens this set -- it alone uses ``PHASE_4``
+#: (30,509 rows) and ``WITHDRAWAL`` (866). Both are listed here even though no
+#: projected dataset uses them, because the vocabulary gate now audits that column
+#: too and a set that covered only the projected datasets would pass today and fail
+#: the moment reports are projected.
+CLINICAL_STAGES = frozenset({
+    "UNKNOWN", "PRECLINICAL", "IND", "EARLY_PHASE_1", "PHASE_1", "PHASE_1_2",
+    "PHASE_2", "PHASE_2_3", "PHASE_3", "PHASE_4", "PREAPPROVAL", "APPROVAL",
+    "WITHDRAWAL",
+})
+
+#: The subset that lies on the development axis, ordered weakest to strongest, so
+#: "highest stage reached" is expressible without a consumer hardcoding the order.
+#:
+#: ``UNKNOWN`` sorts first: it means no phase was recorded, not an early one.
+#: ``PHASE_4`` sorts above ``APPROVAL`` because phase-4 studies are post-marketing.
+#:
+#: ``WITHDRAWAL`` is deliberately ABSENT. It is a terminal outcome, not a rung: a
+#: withdrawn drug reached approval and was then pulled, so ranking it above
+#: APPROVAL would read as further progress and ranking it at the bottom would read
+#: as never developed. Both are wrong, so it is not ranked at all and `stage_rank`
+#: refuses it rather than choosing a wrong answer quietly.
+CLINICAL_STAGE_ORDER = (
     "UNKNOWN",
     "PRECLINICAL",
     "IND",
@@ -142,8 +162,9 @@ CLINICAL_STAGES = (
     "PHASE_3",
     "PREAPPROVAL",
     "APPROVAL",
+    "PHASE_4",
 )
-CLINICAL_STAGE_RANK = {stage: rank for rank, stage in enumerate(CLINICAL_STAGES)}
+CLINICAL_STAGE_RANK = {stage: rank for rank, stage in enumerate(CLINICAL_STAGE_ORDER)}
 
 #: ChEMBL mechanism action types, all 30 observed at 26.06. Emitted as a literal
 #: rather than mapped onto Biolink predicates: "OPENER" and "STABILISER" have no
@@ -191,7 +212,7 @@ DRUG_TYPES = frozenset({
 #: has an exact Biolink class; the other ten modalities span antibodies, proteins,
 #: oligonucleotides, gene and cell therapies, and mapping each onto a Biolink class
 #: would assert distinctions this ingest cannot check. They take the common
-#: supertype and keep ``sagebrain:drugType`` verbatim, so a consumer can refine on
+#: supertype and keep ``sagebrain:drug_type`` verbatim, so a consumer can refine on
 #: the source's own word rather than on our guess. ``biolink:ChemicalEntity`` is
 #: admittedly a loose fit for the 67 "Cell" entries; the drugType says so.
 DRUG_TYPE_CLASS = {"Small molecule": "biolink:SmallMolecule"}
@@ -242,12 +263,26 @@ def check_vocabulary(value: str, allowed: frozenset[str], what: str, constant: s
 
 
 def stage_rank(stage: str) -> int:
-    if stage not in CLINICAL_STAGE_RANK:
+    """Position on the development axis. Raises for stages that have none.
+
+    Separate from membership on purpose: `CLINICAL_STAGES` says a value is valid,
+    this says where it sits, and WITHDRAWAL is the case where those two differ.
+    A caller computing "highest stage reached" over a set containing WITHDRAWAL
+    has to decide what that means; silently ranking it would decide for them.
+    """
+    if stage in CLINICAL_STAGE_RANK:
+        return CLINICAL_STAGE_RANK[stage]
+    if stage in CLINICAL_STAGES:
         raise IngestError(
-            f"Unrecognised clinical stage {stage!r}. Extend CLINICAL_STAGES in "
-            "opentargets/common.py, keeping it ordered weakest to strongest."
+            f"Clinical stage {stage!r} is valid but is not on the development axis, "
+            f"so it cannot be ranked. Decide explicitly how to treat it -- see "
+            f"CLINICAL_STAGE_ORDER in opentargets/common.py."
         )
-    return CLINICAL_STAGE_RANK[stage]
+    raise IngestError(
+        f"Unrecognised clinical stage {stage!r}. Extend CLINICAL_STAGES in "
+        "opentargets/common.py, and CLINICAL_STAGE_ORDER too if it is a "
+        "development stage rather than a terminal outcome."
+    )
 
 
 # ── identifiers ───────────────────────────────────────────────────────────────

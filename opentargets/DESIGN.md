@@ -62,15 +62,15 @@ source with no data.
 
 Biolink supplies the classes and predicates. [shared/rdf.py](../shared/rdf.py) defines
 namespace bases. `sagebrain:` is the only local namespace; the 11 terms this ingest
-mints are listed by acceptance check 10 until sagebrain-model ratifies them.
+mints are listed by acceptance check 11 until sagebrain-model ratifies them.
 
 ```turtle
 CHEMBL:CHEMBL2103875
     a biolink:SmallMolecule ;
     rdfs:label "TRAMETINIB" ;
-    sagebrain:drugType "Small molecule" ;
-    sagebrain:inchiKey "LIRYPHYGHXZJBZ-UHFFFAOYSA-N" ;
-    sagebrain:maximumClinicalStage "APPROVAL" ;
+    sagebrain:drug_type "Small molecule" ;
+    sagebrain:inchi_key "LIRYPHYGHXZJBZ-UHFFFAOYSA-N" ;
+    sagebrain:overall_clinical_stage "APPROVAL" ;
     skos:altLabel "GSK1120212" , "MEKINIST" .
 
 HGNC:6840  a biolink:Gene ; rdfs:label "MAP2K1" ; biolink:in_taxon NCBITaxon:9606 .
@@ -79,9 +79,9 @@ HGNC:6840  a biolink:Gene ; rdfs:label "MAP2K1" ; biolink:in_taxon NCBITaxon:960
    biolink:subject CHEMBL:CHEMBL2103875 ;
    biolink:object HGNC:6840 ;
    biolink:predicate biolink:affects ;
-   sagebrain:actionType "INHIBITOR" ;
-   sagebrain:mechanismOfAction "Dual specificity mitogen-activated protein kinase kinase 1 inhibitor" ;
-   sagebrain:targetType "single protein" ;
+   sagebrain:action_type "INHIBITOR" ;
+   sagebrain:mechanism_of_action "Dual specificity mitogen-activated protein kinase kinase 1 inhibitor" ;
+   sagebrain:target_type "single protein" ;
    biolink:original_object "ENSEMBL:ENSG00000169032" ;
    biolink:primary_knowledge_source infores:open-targets .
 
@@ -89,8 +89,8 @@ HGNC:6840  a biolink:Gene ; rdfs:label "MAP2K1" ; biolink:in_taxon NCBITaxon:960
    biolink:subject CHEMBL:CHEMBL1614701 ;
    biolink:object EFO:EFO_0000658 ;
    biolink:predicate biolink:treats_or_applied_or_studied_to_treat ;
-   sagebrain:maxClinicalStage "APPROVAL" ;
-   sagebrain:clinicalReportCount 14 ;
+   sagebrain:max_clinical_stage "APPROVAL" ;
+   sagebrain:clinical_report_count 14 ;
    biolink:primary_knowledge_source infores:open-targets .
 ```
 
@@ -149,11 +149,12 @@ depends on the consumer's field.
 
 ## 7. Acceptance criteria
 
-Ten checks: compounds typed and labelled; mechanism edges resolve to typed gene nodes;
+Eleven checks: compounds typed and labelled; mechanism edges resolve to typed gene nodes;
 indication edges resolve to typed disease or phenotype nodes; the three controlled
 vocabularies as they appear *in the graph*; genes HGNC-keyed with exactly one taxon;
 release size in range and in agreement with the `void:triples` the loader asserted;
-a set of known facts; and the `sagebrain:` model-term review.
+a set of known facts; that the two clinical-stage slots never land on the same subject;
+and the `sagebrain:` model-term review.
 
 The known-facts check is this ingest's equivalent of Reactome's NF1 membership check —
 eight anchors covering the mechanism and indication hops that downstream work depends

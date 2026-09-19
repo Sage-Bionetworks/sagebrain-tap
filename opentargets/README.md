@@ -38,7 +38,7 @@ instead of a local store.
 | `transform_indications` | `indications.ttl` — compound→disease edges with stage, and disease/phenotype nodes |
 | `export_label_index` | `exports/chembl_labels.tsv` — label→ChEMBL id, for consumers resolving free text |
 | `load_graph` | Release graph and `void.ttl` metadata in the default graph |
-| `acceptance_checks` | Ten checks: node typing, edge resolution, vocabularies, gene keying, size, known facts, model terms |
+| `acceptance_checks` | Eleven checks: node typing, edge resolution, vocabularies, gene keying, size, known facts, stage-slot separation, model terms |
 
 Every module supports `python -m opentargets.<module> --help`.
 See [design decisions](DESIGN.md) and [manifests](manifests/).
@@ -49,7 +49,7 @@ Open Targets publishes `release_data_integrity` — a SHA-1 for every file in th
 release — with its own `.sha1` alongside. The ingest verifies that manifest, then
 verifies every download against it, and records the manifest's own digest as the
 release anchor. That anchor is in `release.json` and in the graph's VoID as
-`sagebrain:sourceIntegrityDigest`.
+`sagebrain:source_integrity_digest`.
 
 `manifests/26.06-sources.tsv` is committed and carries, per file, upstream's SHA-1,
 our SHA-256, the byte count and the dataset's row count. Only the manifest is
@@ -66,15 +66,19 @@ reports drift and never edits the pin.
 
 Three things the triples cannot tell you, all also recorded in VoID:
 
-- **`sagebrain:maxClinicalStage` belongs to an edge, not a drug.** It is the maximum
+- **`sagebrain:max_clinical_stage` belongs to an edge, not a drug.** It is the maximum
   over the reports behind one drug–disease pair. A drug that failed phase 3 for one
   disease and was approved for another carries both, on different edges. Never quote
-  a stage without its indication. The molecule-level `sagebrain:maximumClinicalStage`
-  is a maximum over *all* indications and says nothing about any one disease.
+  a stage without its indication. `sagebrain:overall_clinical_stage` is a different
+  fact, not a duplicate: it is the compound's own highest stage — not ChEMBL's
+  numeric `max_phase`, and **not**
+  derivable from the edges — 875 compounds carry a higher value than their edges imply
+  and 1,276 carry a stage with no indication edge at all, 391 of them at `APPROVAL`.
+  It says nothing about *which* disease.
 - **Indications use `biolink:treats_or_applied_or_studied_to_treat`, not
   `biolink:treats`.** 75,293 of 86,468 rows are below APPROVAL. A phase-1 trial is a
   compound being studied for a disease, not one that treats it.
-- **`sagebrain:targetType` decides what a mechanism edge claims.** `single protein`
+- **`sagebrain:target_type` decides what a mechanism edge claims.** `single protein`
   is a drug–target pair. `protein family`, `protein complex` and `selectivity group`
   name a *group*, and the edges enumerate its members — trametinib's "MEK1/2
   inhibitor" row becomes one edge to MAP2K1 and one to MAP2K2 from a single claim.
@@ -117,7 +121,7 @@ field conventions.
 | Indication edges | 86,468 — 11,364 drugs × 3,749 diseases, 11,175 at APPROVAL |
 | Release graph | 1,005,963 triples |
 
-See [`manifests/26.06-acceptance.md`](manifests/26.06-acceptance.md). Ten checks pass;
+See [`manifests/26.06-acceptance.md`](manifests/26.06-acceptance.md). Eleven checks pass;
 the model-term review warns that 11 `sagebrain:` terms are not yet defined in
 sagebrain-model, which is the intended to-do list rather than a failure.
 

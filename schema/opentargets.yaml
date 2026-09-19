@@ -1,0 +1,660 @@
+id: https://w3id.org/sagebrain/opentargets
+name: sagebrain-opentargets
+title: SageBrain Open Targets Drug-Layer Ingest
+description: >-
+  LinkML definitions for the Open Targets Platform drug layer: ChEMBL compound
+  nodes with their name/synonym/trade-name index, HGNC gene nodes, disease and
+  phenotype nodes, and the two reified associations that join them -- mechanism of
+  action and clinical indication.
+
+  Scope is the drug axis. Target-disease association SCORES are deliberately
+  absent: they are opinionated composites over heterogeneous evidence, useful for
+  ranking and wrong to treat as evidence, and a graph that carries them invites
+  the misuse where a number is quoted without what produced it.
+
+  clinical_report -- the trials, labels and regulatory records behind each
+  indication -- is pinned and layout-gated but not projected. Indication edges
+  carry a report COUNT instead, which is enough to distinguish a stage backed by
+  fourteen reports from one backed by a single record. Projecting the reports is
+  additive and attaches to the compound and disease URIs minted here.
+
+license: https://creativecommons.org/publicdomain/zero/1.0/
+default_prefix: sagebrain
+default_range: string
+
+prefixes:
+  # One model namespace, owned by ontology/main/sagebrain.ttl in the
+  # sagebrain-model repo. A term this ingest needs before the model has ratified
+  # it is minted here anyway and reported by acceptance check 11.
+  # See shared/rdf.py NAMESPACES and opentargets/common.py PREFIXES.
+  sagebrain: https://w3id.org/synapse/sagebrain#
+  linkml: https://w3id.org/linkml/
+  biolink: https://w3id.org/biolink/vocab/
+  CHEMBL: "https://identifiers.org/chembl:"
+  ENSEMBL: "https://identifiers.org/ensembl:"
+  HGNC: "https://identifiers.org/hgnc:"
+  EFO: http://www.ebi.ac.uk/efo/
+  obo: http://purl.obolibrary.org/obo/
+  ORDO: http://www.orpha.net/ORDO/
+  NCBITaxon: http://purl.obolibrary.org/obo/NCBITaxon_
+  infores: https://w3id.org/biolink/infores/
+  skos: http://www.w3.org/2004/02/skos/core#
+  rdfs: http://www.w3.org/2000/01/rdf-schema#
+  dcterms: http://purl.org/dc/terms/
+  pav: http://purl.org/pav/
+  prov: http://www.w3.org/ns/prov#
+  void: http://rdfs.org/ns/void#
+  xsd: http://www.w3.org/2001/XMLSchema#
+
+imports:
+  - linkml:types
+
+# Pinned Biolink version, matching the Reactome ingest. biolink:SmallMolecule,
+# biolink:ChemicalEntity, biolink:ChemicalToGeneAssociation,
+# biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation, biolink:affects,
+# biolink:treats_or_applied_or_studied_to_treat, biolink:original_object and
+# biolink:primary_knowledge_source were all verified present in this release
+# before the slots below were finalised.
+settings:
+  biolink_version: 4.4.4
+  opentargets_release: "26.06"
+
+# ── enums ─────────────────────────────────────────────────────────────────────
+
+enums:
+
+  ClinicalStageEnum:
+    description: >-
+      The stage vocabulary Open Targets uses, complete as observed at release
+      26.06 and enforced -- a value outside this set is a hard error at transform
+      time, never a default and never dropped.
+
+      Two of these values appear only in clinical_report, which is pinned and gated
+      but not projected: PHASE_4 (30,509 rows) and WITHDRAWAL (866). They are listed
+      because the vocabulary gate audits that column too, and a set covering only
+      the projected datasets would pass today and fail the moment reports are
+      projected.
+
+      CLINICAL_STAGE_ORDER in opentargets/common.py orders the development axis so
+      "highest stage reached" is expressible without a consumer hardcoding it.
+      UNKNOWN sorts FIRST and is not an early phase -- it means no phase was
+      recorded. PHASE_4 sorts above APPROVAL, because phase-4 studies are
+      post-marketing.
+
+      WITHDRAWAL is deliberately absent from that ordering. It is a terminal
+      outcome, not a rung: a withdrawn drug reached approval and was then pulled, so
+      ranking it above APPROVAL reads as further progress and ranking it at the
+      bottom reads as never developed. `stage_rank` refuses it rather than choosing
+      a wrong answer quietly.
+    permissible_values:
+      UNKNOWN:
+        description: No phase recorded by the source. Not an early phase.
+      PRECLINICAL:
+      IND:
+        description: Investigational New Drug application.
+      EARLY_PHASE_1:
+      PHASE_1:
+      PHASE_1_2:
+      PHASE_2:
+      PHASE_2_3:
+      PHASE_3:
+      PREAPPROVAL:
+      APPROVAL:
+        description: >-
+          Approved for the indication on the edge carrying this value, in some
+          jurisdiction, for some population. Not a statement that the drug is
+          appropriate for any given patient, and not treatment guidance.
+      PHASE_4:
+        description: >-
+          Post-marketing study. Implies approval, and is collapsed into APPROVAL at
+          the compound level by the source. Only clinical_report uses it.
+      WITHDRAWAL:
+        description: >-
+          Withdrawn. A terminal outcome, not a development stage -- see the note
+          above on why it carries no rank. Only clinical_report uses it.
+
+  TargetTypeEnum:
+    description: >-
+      ChEMBL's target type, complete at 26.06. This is the most misuse-prone value
+      in the schema and it rides on every mechanism edge for that reason.
+
+      For single protein, chimeric protein and nucleic-acid, the source's target
+      is ONE entity and the edge is a drug-to-target pair. For every other value
+      the target is a named GROUP -- a family, a complex, a selectivity class --
+      and the ingest emits one edge per member, all derived from a single claim
+      about the group. Trametinib's "MEK1/2 inhibitor" row becomes an edge to
+      MAP2K1 and an edge to MAP2K2; neither is a separately measured interaction.
+
+      At 26.06 group edges outnumber single-entity edges 9,506 to 5,202, so a
+      query that counts drug-target pairs without filtering on this slot
+      over-counts by roughly two thirds.
+    permissible_values:
+      "single protein":
+      "chimeric protein":
+      "nucleic-acid":
+      "protein family":
+        description: Members enumerated; the claim is about the family.
+      "protein complex":
+      "protein complex group":
+      "protein nucleic-acid complex":
+      "protein-protein interaction":
+      "selectivity group":
+
+  ActionTypeEnum:
+    description: >-
+      ChEMBL's mechanism action type, all 30 values observed at 26.06.
+
+      Carried as a value rather than mapped onto Biolink predicates: OPENER,
+      STABILISER and SUBSTRATE have no faithful Biolink predicate, and inventing
+      one would assert a direction of effect the source does not state. The
+      association predicate is therefore the neutral biolink:affects, with the
+      direction of effect recorded here.
+    permissible_values:
+      ACTIVATOR:
+      AGONIST:
+      "ALLOSTERIC ANTAGONIST":
+      ANTAGONIST:
+      "ANTISENSE INHIBITOR":
+      "BINDING AGENT":
+      BLOCKER:
+      "CROSS-LINKING AGENT":
+      DEGRADER:
+      "DISRUPTING AGENT":
+      "EXOGENOUS GENE":
+      "EXOGENOUS PROTEIN":
+      "GENE EDITING NEGATIVE MODULATOR":
+      "HYDROLYTIC ENZYME":
+      INHIBITOR:
+        description: The majority value at 26.06 (3,379 of 6,500 mechanism rows).
+      "INVERSE AGONIST":
+      MODULATOR:
+      "NEGATIVE ALLOSTERIC MODULATOR":
+      "NEGATIVE MODULATOR":
+      OPENER:
+      OTHER:
+      "PARTIAL AGONIST":
+      "POSITIVE ALLOSTERIC MODULATOR":
+      "POSITIVE MODULATOR":
+      "PROTEOLYTIC ENZYME":
+      "RELEASING AGENT":
+      "RNAI INHIBITOR":
+      STABILISER:
+      SUBSTRATE:
+      "VACCINE ANTIGEN":
+
+  DrugTypeEnum:
+    description: >-
+      The modality Open Targets records, all 11 values at 26.06. Kept verbatim on
+      every compound because the Biolink class assigned is a deliberately shallow
+      split (see the Compound class) and this slot is what lets a consumer refine
+      on the source's own word rather than on the ingest's guess.
+    permissible_values:
+      "Small molecule":
+        description: 18,124 of 22,407 molecules at 26.06; the only value with a narrow Biolink class.
+      Antibody:
+      "Antibody drug conjugate":
+      Cell:
+        description: >-
+          A cell therapy. biolink:ChemicalEntity is a loose fit for these 67
+          entries; this slot is how a consumer can tell.
+      Enzyme:
+      Gene:
+      Oligonucleotide:
+      Oligosaccharide:
+      Protein:
+      "Vaccine component":
+      Unknown:
+
+  TaxonEnum:
+    description: >-
+      In-scope taxa for gene nodes. Human only: Open Targets mechanism targets are
+      human Ensembl gene ids.
+    permissible_values:
+      "NCBITaxon:9606":
+        title: Homo sapiens
+
+# ── slots ─────────────────────────────────────────────────────────────────────
+
+slots:
+
+  id:
+    identifier: true
+    range: uriorcurie
+    description: Stable identifier for the node.
+
+  name:
+    slot_uri: rdfs:label
+    description: Human-readable label.
+
+  alt_label:
+    slot_uri: skos:altLabel
+    multivalued: true
+    description: >-
+      Every synonym and trade name the release gives a compound. This is the
+      layer's payload, not decoration: 22,407 molecules carry 101,198
+      (label, molecule) pairs, and that index is what lets SELUMETINIB and
+      AZD-6244 resolve to the same CHEMBL1614701 -- something no amount of string
+      matching between two local datasets can do.
+
+      Ambiguity is preserved rather than resolved. 2,607 case-folded labels name
+      more than one molecule, so a lookup can return several candidates; each
+      molecule carries only its own labels and the exported TSV flags the fork.
+      Collapsing them would turn an unresolvable string into a confident wrong
+      answer.
+
+  in_taxon:
+    slot_uri: biolink:in_taxon
+    range: TaxonEnum
+    required: true
+    description: >-
+      Emitted on every gene node even though it is constant under current scope,
+      for the same reason as the Reactome ingest: it makes scope explicit in the
+      data rather than only in prose.
+
+  drug_type:
+    slot_uri: sagebrain:drug_type
+    range: DrugTypeEnum
+    required: true
+    description: The source's modality for this compound, kept verbatim.
+
+  inchi_key:
+    slot_uri: sagebrain:inchi_key
+    description: >-
+      InChIKey, present on 18,697 of 22,407 molecules along with canonical SMILES.
+      Structure keys matter for the long tail of catalogue compounds whose
+      stereochemistry and salt prefixes ChEMBL spells differently from everyone
+      else: a key derived from structure resolves without either side agreeing on
+      a name.
+
+  canonical_smiles:
+    slot_uri: sagebrain:canonical_smiles
+    description: Canonical SMILES, present on exactly the molecules that carry an InChIKey.
+
+  overall_clinical_stage:
+    slot_uri: sagebrain:overall_clinical_stage
+    range: ClinicalStageEnum
+    description: >-
+      The compound's own highest clinical stage, from the source's
+      maximumClinicalStage column. A property of the compound, not of any
+      indication.
+
+      It is NOT ChEMBL's max_phase, despite the resemblance. ChEMBL's max_phase is
+      numeric (0, 0.5, 1, 2, 3, 4); this column carries Open Targets' own 11-value
+      stage vocabulary, and 879 compounds hold values max_phase cannot express --
+      PHASE_1_2, PHASE_2_3, EARLY_PHASE_1, IND, PREAPPROVAL. Naming the slot
+      max_phase would assert a provenance the data contradicts.
+
+      Measured, it is Open Targets' rollup over clinical_report stages with PHASE_4
+      collapsed into APPROVAL: of the 12,631 compounds a report names, 9,786 equal
+      the report-derived maximum exactly and a further 2,832 are the PHASE_4 case,
+      accounting for 12,618 of 12,631 (99.9%). Thirteen genuinely differ.
+
+      It is also NOT derivable from this graph's indication edges, which is why it
+      is ingested rather than computed. Of the 11,363 compounds carrying an
+      indication edge, 875 hold a HIGHER value than their edges imply (335 of them
+      APPROVAL against a derived PHASE_3), and 1,276 compounds carry a non-UNKNOWN
+      stage with no indication edge at all -- 391 at APPROVAL. Deriving the slot
+      would drop 391 approved drugs and understate 875 more.
+
+      What it cannot tell you is WHICH disease, so it must never be read as an
+      indication-level fact. Named overall_ rather than max_ because the earlier
+      name differed from max_clinical_stage by four characters, which is not enough
+      separation between two slots whose confusion yields a plausible wrong answer.
+  parent_molecule:
+    slot_uri: sagebrain:parent_molecule
+    range: Compound
+    description: >-
+      The parent of a salt or mixture form, from the source's parentId. Kept
+      because a salt and its parent share most of their labels, so a consumer that
+      resolved a string to the salt can climb rather than treat the two as
+      unrelated compounds -- SELUMETINIB SULFATE and SELUMETINIB both carry their
+      own approval edges at 26.06.
+
+  subject:
+    slot_uri: biolink:subject
+    range: uriorcurie
+    required: true
+
+  object:
+    slot_uri: biolink:object
+    range: uriorcurie
+    required: true
+
+  predicate:
+    slot_uri: biolink:predicate
+    range: uriorcurie
+    required: true
+
+  primary_knowledge_source:
+    slot_uri: biolink:primary_knowledge_source
+    range: uriorcurie
+    required: true
+
+  action_type:
+    slot_uri: sagebrain:action_type
+    range: ActionTypeEnum
+    required: true
+    description: Direction of effect, carried here because the predicate is neutral.
+
+  mechanism_of_action:
+    slot_uri: sagebrain:mechanism_of_action
+    description: >-
+      The source's free-text mechanism description, e.g. "Dual specificity
+      mitogen-activated protein kinase kinase 1 inhibitor". Kept verbatim: it is
+      the only place the group-level claim is stated in the source's own words,
+      which is what makes a family-level edge interpretable.
+
+  target_type:
+    slot_uri: sagebrain:target_type
+    range: TargetTypeEnum
+    required: true
+    description: >-
+      What the edge claims. Required on every mechanism edge -- see
+      TargetTypeEnum; omitting it is how a consumer over-counts drug-target pairs.
+
+  target_name:
+    slot_uri: sagebrain:target_name
+    description: >-
+      The source's name for the target, which for a group is the group's name
+      ("Dual specificity mitogen-activated protein kinase kinase; MEK1/2") rather
+      than the member this edge points at.
+
+  original_object:
+    slot_uri: biolink:original_object
+    range: string
+    description: >-
+      The Ensembl gene id as Open Targets stated it, before this ingest normalised
+      the object to HGNC. Biolink's own slot for exactly that, so a Biolink
+      consumer needs no local knowledge to find it -- the mirror of how the
+      Reactome ingest keeps its UniProt accession in biolink:original_subject.
+
+      A string, not a CURIE reference: biolink:original_object is declared
+      owl:DatatypeProperty in the pinned 4.4.4 release, and emitting an IRI for a
+      datatype property is incoherent for anything that reasons over the graph.
+      The id is recorded but not traversable, which is the right trade while
+      nothing in this graph describes Ensembl entities.
+
+      Kept at all because the normalisation is otherwise a one-way door. 1,548 of
+      1,550 target ids resolve to HGNC (99.9%); the two that do not are reported
+      to reports/unresolved_mechanism_targets.tsv rather than silently dropped.
+
+  max_clinical_stage:
+    slot_uri: sagebrain:max_clinical_stage
+    range: ClinicalStageEnum
+    required: true
+    description: >-
+      The highest stage reached for THIS drug-disease pair, a maximum over the
+      clinical reports behind it.
+
+      A property of the edge, never of the drug. A compound that failed phase 3
+      for one disease and was approved for another carries both values, on
+      different edges, and hoisting either onto the compound erases the
+      difference. Quote a stage with its indication or not at all.
+
+      It also flattens history within one pair: a maximum over reports cannot say
+      that a phase-3 trial was stopped. clinical_report_count is the cheap signal
+      for how much is behind the value; the reports themselves are not projected.
+
+  clinical_report_count:
+    slot_uri: sagebrain:clinical_report_count
+    range: integer
+    required: true
+    description: >-
+      How many clinical reports Open Targets lists for this drug-disease pair. A
+      stage backed by fourteen reports and one backed by a single record are not
+      equally load-bearing, and this is the cheapest way to say so without
+      ingesting clinical_report.
+
+# ── classes ───────────────────────────────────────────────────────────────────
+
+classes:
+
+  Compound:
+    class_uri: biolink:ChemicalEntity
+    description: >-
+      A ChEMBL molecule, identified by its ChEMBL id under identifiers.org. No
+      SageBrain-local URIs are minted for external entities.
+
+      The Biolink class is a deliberately shallow split: "Small molecule" is typed
+      biolink:SmallMolecule, every other modality takes biolink:ChemicalEntity,
+      and drug_type carries the source's word. Mapping antibodies, oligonucleotides,
+      gene and cell therapies each onto a Biolink class would assert distinctions
+      this ingest cannot check.
+
+      Note what these nodes are NOT typed as: biolink:Drug. The release is a
+      molecule table, most of whose entries are research compounds with no
+      clinical stage at all (10,454 of 22,407 are UNKNOWN). Typing them Drug --
+      or emitting any property whose rdfs:domain is Drug -- would let a reasoner
+      in the stack conclude that every catalogue compound is a therapeutic. See
+      the open decision on sagebrain:targets below.
+    slots:
+      - id
+      - name
+      - alt_label
+      - drug_type
+      - inchi_key
+      - canonical_smiles
+      - overall_clinical_stage
+      - parent_molecule
+    slot_usage:
+      id:
+        pattern: "^CHEMBL:CHEMBL\\d+$"
+        description: >-
+          ChEMBL accession, e.g. CHEMBL:CHEMBL2103875. identifiers.org keys ChEMBL
+          on the full accession, prefix included -- unlike HGNC, which keys on the
+          bare number.
+      name:
+        description: The release's preferred name, upper-cased at source, e.g. TRAMETINIB.
+
+  Gene:
+    class_uri: biolink:Gene
+    description: >-
+      A gene that is the target of at least one mechanism of action, identified by
+      HGNC. Emitted as a typed node with its symbol and taxon rather than left as
+      a bare association endpoint, following the Reactome ingest: a consumer can
+      enumerate or label a release's genes without reading the association table,
+      and a join against a gene the ingest never asserted fails loudly instead of
+      matching nothing.
+
+      HGNC-keyed although the source is Ensembl-keyed, so genes are ONE kind of
+      node across this repo and join the Reactome ingest's gene nodes by IRI with
+      no mapping table. The Ensembl id survives on each association -- see
+      original_object.
+    slots:
+      - id
+      - name
+      - in_taxon
+    slot_usage:
+      id:
+        pattern: "^HGNC:\\d+$"
+        description: HGNC identifier, e.g. HGNC:6840.
+      name:
+        description: HGNC-approved symbol, e.g. MAP2K1.
+
+  DiseaseOrPhenotypicFeature:
+    class_uri: biolink:DiseaseOrPhenotypicFeature
+    description: >-
+      A term an indication points at. Typed from the id prefix, because
+      clinical_indication mixes ontologies: MONDO, EFO, Orphanet, NCIT and OTAR
+      terms are typed biolink:Disease, HP and MP terms biolink:PhenotypicFeature
+      (8,591 and 430 indication rows respectively -- typing those Disease would be
+      wrong), and GO and OBA terms take this union class rather than being forced
+      either way.
+
+      Nodes exist only for the 3,749 terms an indication references, not for all
+      47,080 terms the release describes; the rest are another source's job. A
+      prefix with no registered IRI base raises rather than being guessed, because
+      a disease id turned into a wrong IRI joins to nothing and reads as absent
+      data rather than as an error.
+    slots:
+      - id
+      - name
+      - alt_label
+    slot_usage:
+      id:
+        pattern: "^(EFO|obo|ORDO):[A-Za-z]+_[0-9]+$"
+        description: >-
+          e.g. EFO:EFO_0000658 (plexiform neurofibroma) or
+          obo:MONDO_0017827 (malignant peripheral nerve sheath tumour).
+      alt_label:
+        description: >-
+          The release's exact synonyms. Kept because "MPNST" and "malignant
+          peripheral nerve sheath tumor" are the same term, and a consumer
+          matching free-text disease names needs both.
+
+  CompoundToGeneAssociation:
+    class_uri: biolink:ChemicalToGeneAssociation
+    description: >-
+      Reified mechanism-of-action association, mirroring the association pattern
+      used elsewhere in the graph.
+
+      One source row can name MANY drugs -- 6,500 rows cover 5,820 molecules -- so
+      rows are fanned out per drug. The release also contains genuinely duplicate
+      rows, so edges are deduplicated on the full tuple; 689 duplicates were
+      collapsed at 26.06 and the count is reported rather than left to inflate the
+      graph.
+
+      Read target_type before counting anything. Group-level edges outnumber
+      single-entity edges roughly two to one.
+    slots:
+      - subject
+      - object
+      - predicate
+      - action_type
+      - mechanism_of_action
+      - target_type
+      - target_name
+      - original_object
+      - primary_knowledge_source
+    slot_usage:
+      subject:
+        description: The compound.
+        range: Compound
+        pattern: "^CHEMBL:CHEMBL\\d+$"
+      object:
+        description: The target gene, normalised to HGNC.
+        range: Gene
+        pattern: "^HGNC:\\d+$"
+      predicate:
+        description: >-
+          Fixed to biolink:affects -- neutral on purpose. The direction of effect
+          is in action_type, because a third of the source's 30 action types have
+          no faithful Biolink predicate and inventing one would assert more than
+          the source states.
+        equals_string: "biolink:affects"
+      primary_knowledge_source:
+        equals_string: "infores:open-targets"
+
+  CompoundToDiseaseAssociation:
+    class_uri: biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation
+    description: >-
+      Reified clinical-indication association: this compound has been studied for,
+      or approved for, this disease, reaching this stage.
+    slots:
+      - subject
+      - object
+      - predicate
+      - max_clinical_stage
+      - clinical_report_count
+      - primary_knowledge_source
+    slot_usage:
+      subject:
+        description: The compound.
+        range: Compound
+        pattern: "^CHEMBL:CHEMBL\\d+$"
+      object:
+        description: The disease or phenotype the compound is indicated for.
+        range: DiseaseOrPhenotypicFeature
+      predicate:
+        description: >-
+          Fixed to biolink:treats_or_applied_or_studied_to_treat -- the WEAK
+          predicate, on purpose. 75,293 of 86,468 indication rows are below
+          APPROVAL and PHASE_2 alone is 28,370; a phase-1 trial is a compound
+          being studied for a disease, not one that treats it. Using biolink:treats
+          would turn every abandoned trial in the release into a therapeutic claim.
+
+          This is also why sagebrain:used_to_treat is NOT used here: the model
+          declares it rdfs:subPropertyOf biolink:treats, so emitting it for a
+          sub-approval indication would entail the strong claim anyway. See the
+          open decision below.
+        equals_string: "biolink:treats_or_applied_or_studied_to_treat"
+      primary_knowledge_source:
+        equals_string: "infores:open-targets"
+
+  Dataset:
+    class_uri: void:Dataset
+    description: >-
+      Per-release named graph metadata, in the default graph. Reloading replaces
+      only urn:sagebrain:opentargets:<release>, so releases sit side by side.
+
+      The four caveats a consumer cannot recover from the triples -- what
+      max_clinical_stage means, why the indication predicate is weak, what a
+      group-level mechanism edge claims, and why genes are HGNC-keyed -- are
+      asserted here as separate rdfs:comment statements, not only in documentation.
+    attributes:
+      source:
+        slot_uri: dcterms:source
+        range: uriorcurie
+        description: The release's FTP output directory.
+      source_integrity_digest:
+        slot_uri: sagebrain:source_integrity_digest
+        description: >-
+          sha1 of the release's own release_data_integrity manifest, which lists a
+          SHA-1 for every file in the release. One digest that identifies the whole
+          release, playing the role the Zenodo version DOI plays for Reactome.
+      version:
+        slot_uri: pav:version
+        description: The Open Targets release, e.g. "26.06".
+      issued:
+        slot_uri: dcterms:issued
+        range: date
+      license:
+        slot_uri: dcterms:license
+        range: uriorcurie
+      bibliographic_citation:
+        slot_uri: dcterms:bibliographicCitation
+        range: uriorcurie
+      triples:
+        slot_uri: void:triples
+        range: integer
+      was_generated_by:
+        slot_uri: prov:wasGeneratedBy
+        range: uriorcurie
+
+# ── open decisions ────────────────────────────────────────────────────────────
+#
+# 1. sagebrain:targets and sagebrain:used_to_treat are already in the model, and
+#    this ingest emits NEITHER. Both are direct Drug-> edges; this layer emits
+#    reified Biolink associations instead, so a model-aware consumer looking for
+#    the model's own predicates currently finds nothing here.
+#
+#    Not an oversight, and not obviously right either -- the blockers are
+#    specific:
+#
+#    * Both declare rdfs:domain biolink:Drug. These compound nodes are not Drugs
+#      (see the Compound class), so emitting either would let a reasoner type
+#      22,407 research compounds as therapeutics by domain inference.
+#    * sagebrain:used_to_treat is rdfs:subPropertyOf biolink:treats, so it is
+#      only defensible for APPROVAL-stage edges -- 11,175 of 86,468.
+#    * sagebrain:targets carries no action type or target type, so a family-level
+#      claim and a measured single-protein interaction would become the same
+#      triple, which is the over-counting trap in TargetTypeEnum.
+#
+#    A defensible middle path exists and is not implemented: emit
+#    sagebrain:targets only for single-entity target types, and
+#    sagebrain:used_to_treat only for APPROVAL edges, in both cases alongside the
+#    reified association rather than instead of it, and additionally type those
+#    subjects biolink:Drug so the domain inference is sound rather than accidental.
+#    That is a modelling decision for review, not a mechanical addition.
+#
+# 2. Eleven slots here are minted under sagebrain: and not yet defined in
+#    sagebrain-model: action_type, canonical_smiles, clinical_report_count,
+#    drug_type, inchi_key, max_clinical_stage, overall_clinical_stage,
+#    mechanism_of_action, parent_molecule, target_name, target_type. Acceptance
+#    check 10 lists them with statement counts every run, so the model repo can
+#    triage by how much rides on each. That warning is the intended to-do list.
+#
+# 3. crossReferences (PubChem, DrugBank, ...) is read by nothing yet and is
+#    therefore absent from both this schema and the layout gate's required
+#    columns. It is the natural next step for structure- and xref-based
+#    resolution of the long tail.

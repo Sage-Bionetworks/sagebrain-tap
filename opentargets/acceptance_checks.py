@@ -97,10 +97,10 @@ def run_checks(client: GraphClient, graph: str, release: str,
 
     # 1 -- every compound is typed and labelled.
     unlabelled = _count(client, graph, """
-        ?c sagebrain:drugType ?t . FILTER NOT EXISTS { ?c rdfs:label ?l }""")
+        ?c sagebrain:drug_type ?t . FILTER NOT EXISTS { ?c rdfs:label ?l }""")
     untyped = _count(client, graph, """
-        ?c sagebrain:drugType ?t . FILTER NOT EXISTS { ?c a ?class }""")
-    compounds = _distinct(client, graph, "c", "?c sagebrain:drugType ?t")
+        ?c sagebrain:drug_type ?t . FILTER NOT EXISTS { ?c a ?class }""")
+    compounds = _distinct(client, graph, "c", "?c sagebrain:drug_type ?t")
     checks.append(Check(1, "Compounds typed and labelled",
                         unlabelled == 0 and untyped == 0,
                         f"{compounds:,} compounds; {unlabelled} unlabelled, {untyped} untyped"))
@@ -128,10 +128,10 @@ def run_checks(client: GraphClient, graph: str, release: str,
 
     # 4-6 -- controlled vocabularies, verified in the GRAPH rather than the source.
     for number, name, predicate, allowed, constant in (
-        (4, "Clinical stages", "sagebrain:maxClinicalStage",
-         frozenset(CLINICAL_STAGES), "CLINICAL_STAGES"),
-        (5, "Action types", "sagebrain:actionType", ACTION_TYPES, "ACTION_TYPES"),
-        (6, "Target types", "sagebrain:targetType", TARGET_TYPES, "TARGET_TYPES"),
+        (4, "Clinical stages", "sagebrain:max_clinical_stage",
+         CLINICAL_STAGES, "CLINICAL_STAGES"),
+        (5, "Action types", "sagebrain:action_type", ACTION_TYPES, "ACTION_TYPES"),
+        (6, "Target types", "sagebrain:target_type", TARGET_TYPES, "TARGET_TYPES"),
     ):
         observed = set(_values(client, f"""
             SELECT DISTINCT ?v WHERE {{ GRAPH <{graph}> {{ ?s {predicate} ?v }} }}""", "v"))
@@ -191,20 +191,38 @@ def run_checks(client: GraphClient, graph: str, release: str,
             found = _count(client, graph, f"""
                 ?c skos:altLabel|rdfs:label ?l . FILTER(LCASE(STR(?l)) = "{label}")
                 ?i biolink:subject ?c ; biolink:object <{iri}> ;
-                   sagebrain:maxClinicalStage "{stage}" .""")
+                   sagebrain:max_clinical_stage "{stage}" .""")
             if not found:
                 missing.append(f"{label} -> {disease} at {stage} (indication)")
     checks.append(Check(9, "Known facts present", not missing,
                         f"all {len(DEMO_ANCHORS)} anchors present" if not missing
                         else f"{len(missing)} missing", lines=missing))
 
-    # 10 -- model terms. A warning: the model repo and this ingest move at
+    # 10 -- the two clinical-stage slots must never land on the same subject.
+    # They are different facts (one per drug-disease edge, one per molecule) and
+    # keeping them apart is the whole reason they are named differently. A subject
+    # carrying both would mean a transform started conflating them.
+    both = _count(client, graph, """
+        ?s sagebrain:max_clinical_stage ?a ; sagebrain:overall_clinical_stage ?b .""")
+    on_edges = _count(client, graph, """
+        ?s sagebrain:max_clinical_stage ?v .
+        FILTER NOT EXISTS { ?s a biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation }""")
+    on_molecules = _count(client, graph, """
+        ?s sagebrain:overall_clinical_stage ?v .
+        FILTER NOT EXISTS { ?s sagebrain:drug_type ?d }""")
+    checks.append(Check(10, "Clinical-stage slots kept apart",
+                        both == 0 and on_edges == 0 and on_molecules == 0,
+                        f"{both} subject(s) carry both; {on_edges} edge-stage value(s) "
+                        f"off an indication edge; {on_molecules} molecule-stage value(s) "
+                        f"off a compound"))
+
+    # 11 -- model terms. A warning: the model repo and this ingest move at
     # different speeds, and so does the network.
     pairs = [(row["p"]["value"], row["n"]["value"]) for row in client.select(
         PREFIXES + f"""SELECT ?p (COUNT(*) AS ?n)
         WHERE {{ GRAPH <{graph}> {{ ?s ?p ?o }} }} GROUP BY ?p""")["results"]["bindings"]]
     review = model_terms.review(model_terms.counts_from_iris(pairs))
-    checks.append(Check(10, "Model terms defined in sagebrain-model", review.passed,
+    checks.append(Check(11, "Model terms defined in sagebrain-model", review.passed,
                         review.detail, fatal=False, lines=review.lines()))
     return checks
 

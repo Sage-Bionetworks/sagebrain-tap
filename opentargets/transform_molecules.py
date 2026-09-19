@@ -95,26 +95,26 @@ def transform(input_dir: Path, out_path: Path) -> dict:
                 name = (row.get("name") or "").strip()
                 if name:
                     pairs.append(("rdfs:label", literal(name)))
-                pairs.append(("sagebrain:drugType", literal(drug_type)))
+                pairs.append(("sagebrain:drug_type", literal(drug_type)))
 
                 inchi = (row.get("inchiKey") or "").strip()
                 smiles = (row.get("canonicalSmiles") or "").strip()
                 if inchi:
-                    pairs.append(("sagebrain:inchiKey", literal(inchi)))
+                    pairs.append(("sagebrain:inchi_key", literal(inchi)))
                 if smiles:
-                    pairs.append(("sagebrain:canonicalSmiles", literal(smiles)))
+                    pairs.append(("sagebrain:canonical_smiles", literal(smiles)))
                 if inchi and smiles:
                     stats["with_structure"] += 1
 
                 stage = (row.get("maximumClinicalStage") or "").strip()
                 if stage:
-                    check_vocabulary(stage, frozenset(CLINICAL_STAGES),
+                    check_vocabulary(stage, CLINICAL_STAGES,
                                      "maximumClinicalStage", "CLINICAL_STAGES")
                     # Deliberately NOT called maxClinicalStage: that name belongs to
                     # the per-indication value, and this one is a maximum over all of
                     # a molecule's indications. Conflating them is exactly the
                     # flattening the indication caveat warns about.
-                    pairs.append(("sagebrain:maximumClinicalStage", literal(stage)))
+                    pairs.append(("sagebrain:overall_clinical_stage", literal(stage)))
 
                 parent = (row.get("parentId") or "").strip()
                 if parent and parent != chembl_id:
@@ -122,7 +122,7 @@ def transform(input_dir: Path, out_path: Path) -> dict:
                     # and its parent share most labels, so a consumer that resolved
                     # to the salt can climb to the parent rather than treating the
                     # two as unrelated compounds.
-                    pairs.append(("sagebrain:parentMolecule",
+                    pairs.append(("sagebrain:parent_molecule",
                                   iri(expand(chembl_curie(parent)))))
                     stats["with_parent"] += 1
 

@@ -23,7 +23,7 @@ would erase the difference. `drug_molecule.maximumClinicalStage` -- the maximum
 over *all* of a drug's indications -- is emitted by `transform_molecules.py` under
 a deliberately different name for the same reason.
 
-The report count rides along as `sagebrain:clinicalReportCount`: a stage backed by
+The report count rides along as `sagebrain:clinical_report_count`: a stage backed by
 14 reports and one backed by a single record are not equally load-bearing, and the
 count is the cheapest way to say so without ingesting `clinical_report` itself.
 
@@ -106,7 +106,7 @@ def transform(input_dir: Path, out_path: Path) -> dict:
         writer.comment(
             "Open Targets clinical_indication -> compound/disease edges.\n"
             "Predicate is treats_or_applied_or_studied_to_treat, NOT treats: most rows\n"
-            "are trials, not approvals. sagebrain:maxClinicalStage belongs to the edge,\n"
+            "are trials, not approvals. sagebrain:max_clinical_stage belongs to the edge,\n"
             "never to the compound -- quote a stage with its indication or not at all."
         )
 
@@ -118,7 +118,7 @@ def transform(input_dir: Path, out_path: Path) -> dict:
                 if not drug_id or not disease_id:
                     continue
                 stage = (row.get("maxClinicalStage") or "").strip()
-                check_vocabulary(stage, frozenset(CLINICAL_STAGES),
+                check_vocabulary(stage, CLINICAL_STAGES,
                                  "maxClinicalStage", "CLINICAL_STAGES")
                 reports = len(row.get("clinicalReportIds") or [])
 
@@ -139,8 +139,8 @@ def transform(input_dir: Path, out_path: Path) -> dict:
                     ("biolink:object", iri(expand(disease_curie(disease_id)))),
                     ("biolink:predicate",
                      "biolink:treats_or_applied_or_studied_to_treat"),
-                    ("sagebrain:maxClinicalStage", literal(stage)),
-                    ("sagebrain:clinicalReportCount",
+                    ("sagebrain:max_clinical_stage", literal(stage)),
+                    ("sagebrain:clinical_report_count",
                      typed_literal(str(reports), XSD_INTEGER)),
                     ("biolink:primary_knowledge_source", OPENTARGETS_SOURCE),
                 ])
