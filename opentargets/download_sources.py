@@ -16,6 +16,13 @@ own statement about the bytes. So:
    upstream SHA-1, our own SHA-256, the byte count and the row count, plus the
    digest of the integrity manifest as the release anchor.
 
+A dataset is a directory, and every transform opens the directory rather than a
+file list, so anything sitting there is ingested. The pin is therefore checked
+in both directions, on download and on ``--verify``: each pinned part must be
+present and unchanged, and nothing unpinned may be present. Row counts are taken
+over the pinned parts by name for the same reason -- counted over the directory,
+an obsolete part would inflate the manifest and the check against it equally.
+
 The Ensembl -> HGNC crosswalk is acquired independently from the dated archive
 in ``manifests/<release>-hgnc.json``. Its byte count and SHA-256 are checked before
 use, including with ``--verify`` and ``--hgnc``. Normal runs never rewrite this pin.
@@ -54,6 +61,7 @@ import shutil
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from pathlib import Path
 
 from . import hgnc
@@ -154,10 +162,37 @@ def fetch_integrity_manifest(base: str, destination: Path) -> dict[tuple[str, st
     return index
 
 
-def count_rows(directory: Path) -> int:
+def dataset_files(directory: Path) -> list[str]:
+    """Names in a dataset directory that pyarrow would read as part of it.
+
+    Mirrors pyarrow's own ``ignore_prefixes`` default, so this is the set of
+    files an ingest actually sees: a Spark ``_SUCCESS`` marker is skipped,
+    anything else is data. A ``.part`` leftover from an interrupted download is
+    *not* skipped -- pyarrow opens it as Parquet like any other file.
+    """
+    if not directory.is_dir():
+        return []
+    return sorted(path.name for path in directory.iterdir()
+                  if path.is_file() and not path.name.startswith((".", "_")))
+
+
+def unpinned_files(directory: Path, pinned: Iterable[str]) -> list[str]:
+    """Files the dataset would be read from that nothing in the pin accounts for."""
+    known = set(pinned)
+    return [name for name in dataset_files(directory) if name not in known]
+
+
+def count_rows(directory: Path, filenames: Iterable[str]) -> int:
+    """Count rows over the pinned parts, named one by one.
+
+    Counting the directory would instead fold in whatever else is on disk -- a
+    part from a previous release, or a ``.part`` leftover. That inflated total
+    is what would be written to the manifest and then re-read by ``--verify``,
+    so it would agree with itself and pass while unpinned rows were ingested.
+    """
     import pyarrow.dataset as pads
 
-    return pads.dataset(directory).count_rows()
+    return pads.dataset([directory / name for name in sorted(filenames)]).count_rows()
 
 
 def write_manifest(path: Path, release: str, anchor: str, published: str,
@@ -207,6 +242,9 @@ def verify_local(input_dir: Path, manifest_path: Path) -> int:
     """
     entries = read_manifest(manifest_path)
     expected_rows = {e["dataset"]: e["rows"] for e in entries}
+    pinned: dict[str, list[str]] = {}
+    for entry in entries:
+        pinned.setdefault(entry["dataset"], []).append(entry["filename"])
     intact: dict[str, int] = {dataset: 0 for dataset in expected_rows}
     problems = 0
 
@@ -225,18 +263,34 @@ def verify_local(input_dir: Path, manifest_path: Path) -> int:
         else:
             intact[entry["dataset"]] += 1
 
-    # Row counts are a second, independent check: bytes matching proves the parts
-    # are the pinned ones, and the row total proves no part of the dataset is
-    # simply absent from disk -- which byte-level checks of present files cannot see.
-    for dataset, count in sorted(intact.items()):
-        if count == 0:
+    # Then two checks over each dataset as a whole. The loop above cannot make
+    # them: it only ever looks at paths the manifest already names.
+    for dataset, filenames in sorted(pinned.items()):
+        directory = input_dir / dataset
+
+        # An extra file is the one kind of drift that byte-level checks miss
+        # entirely: every transform opens the dataset DIRECTORY, so a part left
+        # behind by a previous release is read and ingested even though each
+        # pinned file hashes clean. Reported, not deleted -- data that appeared
+        # under a pinned path is a thing to look at before removing it.
+        stale = unpinned_files(directory, filenames)
+        for name in stale:
+            log(f"  UNPINNED {dataset}/{name}: present on disk, absent from the manifest")
+            problems += 1
+
+        # The row total is now a statement about the pinned parts alone, which
+        # makes it a check on the manifest itself: a total minted over a dirty
+        # directory no longer matches the bytes recorded beside it. Meaningful
+        # only once every part is intact -- a missing or drifted one is already
+        # reported by name above.
+        if intact[dataset] != len(filenames):
             continue
-        actual = count_rows(input_dir / dataset)
+        actual = count_rows(directory, filenames)
         if actual != expected_rows[dataset]:
             log(f"  DRIFTED  {dataset}: {actual:,} rows vs manifest {expected_rows[dataset]:,}")
             problems += 1
-        else:
-            log(f"  OK       {dataset} ({count} file(s), {actual:,} rows)")
+        elif not stale:
+            log(f"  OK       {dataset} ({len(filenames)} file(s), {actual:,} rows)")
     return problems
 
 
@@ -367,7 +421,15 @@ def main() -> int:
                           "bytes": destination.stat().st_size,
                           "sha1": expected,
                           "sha256": _digest(destination, "sha256")})
-        rows[dataset] = count_rows(outdir / dataset)
+        stale = unpinned_files(outdir / dataset, parts)
+        if stale:
+            raise IngestError(
+                f"{dataset}: {', '.join(stale)} on disk but not part of {args.release}. "
+                f"Transforms read the whole dataset directory, so a leftover from an "
+                f"earlier release would be ingested and would land in the row count "
+                f"written to the manifest. Remove it from {outdir / dataset} and re-run."
+            )
+        rows[dataset] = count_rows(outdir / dataset, parts)
         log(f"  {rows[dataset]:,} rows")
 
     write_manifest(manifest_path, args.release, anchor, published, rows, files)

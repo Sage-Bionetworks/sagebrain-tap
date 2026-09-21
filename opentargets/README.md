@@ -81,6 +81,12 @@ committed, never the data.
 python -m opentargets.download_sources --release 26.06 --verify   # no network
 ```
 
+Datasets are directories and the transforms read the whole directory, so the
+check runs both ways: every pinned part must be present and unchanged, and a
+`.parquet` file the manifest does not list is reported as `UNPINNED` and fails
+the run. Delete stale parts rather than keeping them — left in place, an
+obsolete part from a previous release is ingested and counted.
+
 HGNC is an independent input and is not covered by Open Targets' integrity
 manifest. Its separate pin is checked on download, offline verification, and
 mechanism transformation, and recorded in `release.json`. Quarterly snapshots
