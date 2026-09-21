@@ -40,6 +40,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from . import hgnc
+
 from .common import (
     ACTION_TYPES,
     DEFAULT_RELEASE,
@@ -62,8 +64,6 @@ from .common import (
 
 COLUMNS = ["actionType", "mechanismOfAction", "chemblIds",
            "targetName", "targetType", "targets"]
-
-DEFAULT_HGNC = Path("reactome/input/v97/hgnc_complete_set.txt")
 
 #: Fail if more than this fraction of target lookups do not resolve to HGNC.
 #: Reactome uses the same 10% rule for UniProt. The measured rate at 26.06 is
@@ -183,14 +183,18 @@ def main() -> int:
     parser.add_argument("--release", default=DEFAULT_RELEASE)
     parser.add_argument("--indir", type=Path, default=None)
     parser.add_argument("--workdir", type=Path, default=None)
-    parser.add_argument("--hgnc", type=Path, default=DEFAULT_HGNC,
-                        help=f"HGNC complete set for Ensembl->HGNC (default: {DEFAULT_HGNC})")
+    parser.add_argument("--hgnc", type=Path,
+                        help="Pinned HGNC complete set (default: <indir>/hgnc_complete_set.txt)")
+    parser.add_argument("--manifest-dir", type=Path, default=hgnc.MANIFEST_DIR,
+                        help="Directory containing <release>-hgnc.json")
     args = parser.parse_args()
 
     indir = args.indir or Path("opentargets/input") / args.release
     workdir = args.workdir or Path("opentargets") / args.release / "data"
     log(f"Transforming drug_mechanism_of_action from {indir}")
-    resolver = HgncResolver.from_file(args.hgnc)
+    hgnc_path = args.hgnc or indir / hgnc.HGNC_FILENAME
+    hgnc.verify(hgnc_path, hgnc.read_pin(args.release, args.manifest_dir))
+    resolver = HgncResolver.from_file(hgnc_path)
     log(f"  HGNC crosswalk: {len(resolver.ensembl_to_hgnc):,} Ensembl ids")
     transform(indir, workdir / "rdf" / "mechanisms.ttl", resolver, workdir / "reports")
     return 0

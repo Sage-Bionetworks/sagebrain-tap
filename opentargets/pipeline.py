@@ -44,7 +44,8 @@ def main() -> int:
                         help="Default: opentargets/<release>/data")
     parser.add_argument("--manifest-dir", type=Path, default=Path("opentargets/manifests"))
     parser.add_argument("--hgnc", type=Path, default=None,
-                        help="HGNC complete set for the Ensembl->HGNC hop")
+                        help="Existing copy of the pinned HGNC snapshot; otherwise downloaded "
+                             "into the input directory")
     parser.add_argument("--skip-download", action="store_true",
                         help="Reuse downloaded datasets; still verifies them against "
                              "the committed manifest")
@@ -58,25 +59,27 @@ def main() -> int:
     indir = ["--indir", str(args.input_dir)] if args.input_dir else []
     workdir = ["--workdir", str(args.workdir)] if args.workdir else []
     manifests = ["--manifest-dir", str(args.manifest_dir)]
+    hgnc = ["--hgnc", str(args.hgnc)] if args.hgnc else []
 
     if args.skip_download:
         # Verify rather than trust: the point of the committed manifest is that
         # reusing a local copy is still a checked operation.
-        run("download_sources", release + manifests + ["--verify"] +
+        run("download_sources", release + manifests + hgnc + ["--verify"] +
             (["--outdir", str(args.input_dir)] if args.input_dir else []))
     else:
-        run("download_sources", release + manifests +
+        run("download_sources", release + manifests + hgnc +
             (["--outdir", str(args.input_dir)] if args.input_dir else []))
 
     run("verify_schemas", release + indir + manifests)
     run("transform_molecules", release + indir + workdir)
-    run("transform_mechanisms", release + indir + workdir +
-        (["--hgnc", str(args.hgnc)] if args.hgnc else []))
+    run("transform_mechanisms", release + indir + workdir + manifests + hgnc)
     run("transform_indications", release + indir + workdir)
     run("export_label_index", release + indir + workdir)
 
     ttl_dir = ["--ttl-dir", str(Path(args.workdir) / "rdf")] if args.workdir else []
     load = release + ttl_dir
+    if args.input_dir:
+        load += ["--release-json", str(args.input_dir / "release.json")]
     if args.endpoint:
         load += ["--endpoint", args.endpoint.rstrip("/") + "/store"]
     run("load_graph", load)

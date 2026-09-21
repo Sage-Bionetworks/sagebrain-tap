@@ -16,7 +16,11 @@ own statement about the bytes. So:
    upstream SHA-1, our own SHA-256, the byte count and the row count, plus the
    digest of the integrity manifest as the release anchor.
 
-Per the repository convention, only the manifest is committed -- never the data.
+The Ensembl -> HGNC crosswalk is acquired independently from the dated archive
+in ``manifests/<release>-hgnc.json``. Its byte count and SHA-256 are checked before
+use, including with ``--verify`` and ``--hgnc``. Normal runs never rewrite this pin.
+
+Per the repository convention, only the manifests are committed -- never the data.
 
 ## Why the file list is discovered, not hardcoded
 
@@ -51,6 +55,8 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+from . import hgnc
 
 from .common import (
     DATASETS,
@@ -235,7 +241,7 @@ def verify_local(input_dir: Path, manifest_path: Path) -> int:
 
 
 def write_release_json(path: Path, release: str, anchor: str, published: str,
-                       build_result: str, rows: dict[str, int]) -> None:
+                       build_result: str, rows: dict[str, int], hgnc_pin: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "source": "Open Targets Platform",
@@ -246,6 +252,7 @@ def write_release_json(path: Path, release: str, anchor: str, published: str,
         "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
         "citation_pmid": "39657122",
         "provenance_anchor": {"file": INTEGRITY_FILE, "sha1": anchor},
+        "hgnc": hgnc_pin,
         # Recorded, deliberately not a gate: at 26.06 this is "failure" because
         # the `pos_tarballs` packaging step failed. Every dataset step succeeded.
         "upstream_build_result": build_result,
@@ -292,6 +299,9 @@ def main() -> int:
                         help="Where the committed manifests go")
     parser.add_argument("--datasets", nargs="+", default=list(WANTED),
                         choices=list(DATASETS), help="Subset to fetch (default: all)")
+    parser.add_argument("--hgnc", type=Path,
+                        help="Existing copy of the pinned HGNC snapshot; verified, not overwritten. "
+                             "Default: download to <outdir>/hgnc_complete_set.txt")
     parser.add_argument("--verify", action="store_true",
                         help="Re-hash existing local copies against the committed "
                              "manifest and exit non-zero on drift. No download, no "
@@ -302,7 +312,11 @@ def main() -> int:
     outdir = args.outdir or Path("opentargets/input") / args.release
     manifest_path = args.manifest_dir / f"{args.release}-sources.tsv"
 
+    hgnc_pin = hgnc.read_pin(args.release, args.manifest_dir)
+    hgnc_path = args.hgnc or outdir / hgnc.HGNC_FILENAME
+
     if args.verify:
+        hgnc.verify(hgnc_path, hgnc_pin)
         log(f"Verifying {outdir} against {manifest_path}")
         problems = verify_local(outdir, manifest_path)
         if problems:
@@ -312,6 +326,10 @@ def main() -> int:
         log("\nAll files match the committed manifest.")
         return 0
 
+    if args.hgnc:
+        hgnc.verify(hgnc_path, hgnc_pin)
+    else:
+        hgnc.acquire(hgnc_path, hgnc_pin)
     outdir.mkdir(parents=True, exist_ok=True)
     log(f"Open Targets {args.release}  <{base}/>")
     integrity_path = outdir / INTEGRITY_FILE
@@ -354,7 +372,7 @@ def main() -> int:
 
     write_manifest(manifest_path, args.release, anchor, published, rows, files)
     write_release_json(outdir / "release.json", args.release, anchor, published,
-                       build_result, rows)
+                       build_result, rows, hgnc_pin)
     log(f"\nSources ready in {outdir}")
     log(f"Next: python -m opentargets.verify_schemas --release {args.release}")
     return 0

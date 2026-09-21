@@ -462,7 +462,7 @@ class HgncResolver:
         if not path.exists():
             raise IngestError(
                 f"HGNC complete set not found at {path}. It is the Ensembl -> HGNC "
-                "crosswalk; fetch it with reactome.download_sources or pass --hgnc."
+                "crosswalk; fetch it with opentargets.download_sources or pass --hgnc."
             )
         mapping: dict[str, list[str]] = {}
         symbols: dict[str, str] = {}

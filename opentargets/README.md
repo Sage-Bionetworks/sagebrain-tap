@@ -9,7 +9,12 @@ composites, useful for ranking and wrong to treat as evidence.
 
 ## Quick start
 
-Run from the repository root with Python 3.10+:
+Prerequisites: Python 3.10+, the dependencies below, and network access to the
+Open Targets release server and HGNC's Google Cloud Storage archive on the first
+run. Gene resolution requires the HGNC complete set; the pipeline downloads its
+own pinned copy automatically, so no Reactome download is needed.
+
+Run from the repository root:
 
 ```bash
 python -m venv .venv
@@ -23,15 +28,32 @@ The pipeline downloads into `opentargets/input/26.06/`, writes Turtle to
 `opentargets/26.06/data/exports/`, and loads `opentargets/26.06/data/store/`.
 The named graph is `urn:sagebrain:opentargets:26.06`.
 
-Use `--skip-download` to reuse local datasets — they are still verified against
-the committed manifest — or `--endpoint http://localhost:7011` to load a server
-instead of a local store.
+The HGNC reference goes to `opentargets/input/26.06/hgnc_complete_set.txt`.
+Release 26.06 pins the **2026-07-07 quarterly snapshot** by archive URL, byte count,
+and SHA-256 in [`manifests/26.06-hgnc.json`](manifests/26.06-hgnc.json).
+A custom `--input-dir` also relocates this reference.
+
+Use `--skip-download` to reuse local Parquet datasets and HGNC — both are still
+verified against their committed pins — or `--endpoint http://localhost:7011` to
+load a server instead of a local store. To prepare the inputs separately:
+
+```bash
+python -m opentargets.download_sources --release 26.06
+python -m opentargets.pipeline --release 26.06 --skip-download
+```
+
+If the pinned HGNC snapshot is already available elsewhere, pass
+`--hgnc /path/to/hgnc_complete_set.txt` to either command. This changes the file
+location, not the pin: the supplied copy must match the committed checksum and
+is never overwritten. The standalone `transform_mechanisms` command also verifies
+HGNC and defaults to the copy in its `--indir`. Missing or changed copies fail;
+restore the pinned archive rather than substituting HGNC's mutable latest file.
 
 ## Pipeline
 
 | Module | Result |
 |---|---|
-| `download_sources` | Pinned Parquet datasets, verified against upstream SHA-1; committed source manifest and `release.json` |
+| `download_sources` | Parquet verified against upstream SHA-1 and HGNC verified against its committed SHA-256; source manifest and `release.json` |
 | `verify_schemas` | Column and vocabulary gate; committed verification report |
 | `transform_molecules` | `molecules.ttl` — ChEMBL nodes, preferred names, synonyms, trade names, structures |
 | `transform_mechanisms` | `mechanisms.ttl` — compound→gene edges and HGNC gene nodes; unresolved ids in `reports/` |
@@ -58,6 +80,14 @@ committed, never the data.
 ```bash
 python -m opentargets.download_sources --release 26.06 --verify   # no network
 ```
+
+HGNC is an independent input and is not covered by Open Targets' integrity
+manifest. Its separate pin is checked on download, offline verification, and
+mechanism transformation, and recorded in `release.json`. Quarterly snapshots
+are used because [HGNC retains them while monthly archives expire after a year](https://www.genenames.org/download/archive/).
+For a new Open Targets release, add a reviewed `<release>-hgnc.json` alongside its
+source manifest (or in `--manifest-dir`), using the same fields as the existing
+pin. Normal pipeline runs never create or replace HGNC pins.
 
 A release changing under a stable path means the contents changed. `--verify`
 reports drift and never edits the pin.
