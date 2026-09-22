@@ -10,7 +10,7 @@ This lets SageBrain "tap" selected sources to augment its capability, from ontol
 
 | Source | Named graph | Status |
 |---|---|---|
-| [Reactome](reactome/README.md) | `urn:sagebrain:reactome:v97` | Human pathways, gene associations and GO links; V97 acceptance report available |
+| [Reactome](reactome/README.md) | `urn:sagebrain:reactome:v97` | Human pathways, `sagebrain:participates_in` gene edges with reified associations behind them, and GO links; V97 acceptance report available |
 
 Start with the [Reactome quick start](reactome/README.md#quick-start).
 

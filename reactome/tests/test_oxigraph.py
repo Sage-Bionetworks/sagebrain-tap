@@ -1,6 +1,7 @@
 """Backend regression tests. Set TEST_OXIGRAPH_URL to include HTTP checks."""
 
 import argparse
+import gc
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ from unittest.mock import patch
 import pyoxigraph
 
 from reactome import pipeline
+from reactome.acceptance_checks import GraphQuerier, check_participation_edges
 from reactome.common import IngestError
 from reactome.load_graph import TTL_PARTS, build_void, graph_uri, load_endpoint, load_oxigraph
 from reactome.queries import (
@@ -34,13 +36,14 @@ class OxigraphTests(unittest.TestCase):
                [] a biolink:GeneToPathwayAssociation;
                   biolink:subject HGNC:1; biolink:object REACT:R-HSA-1;
                   biolink:has_evidence ECO:0000304 .''',
+            'HGNC:1 sagebrain:participates_in REACT:R-HSA-1 .',
             'REACT:R-HSA-1 skos:closeMatch GO:0000165 .',
         ]
         # SPARQL PREFIX declarations are also valid Turtle directives.
         for path, body in zip(self.parts, bodies):
             path.write_text(build_query(body))
         self.void = self.root / "void.ttl"
-        self.void.write_text(f'<{self.graph}> <http://rdfs.org/ns/void#triples> 9 .')
+        self.void.write_text(f'<{self.graph}> <http://rdfs.org/ns/void#triples> 10 .')
         self.load(self.graph)
 
     def load(self, graph):
@@ -80,8 +83,8 @@ class OxigraphTests(unittest.TestCase):
         count = 'SELECT (COUNT(*) AS ?n) WHERE { ?s ?p ?o }'
         current = json.loads(self.query(count, graph=self.graph))["results"]["bindings"]
         previous = json.loads(self.query(count, graph=self.other_graph))["results"]["bindings"]
-        self.assertEqual(int(current[0]["n"]["value"]), 3)
-        self.assertEqual(int(previous[0]["n"]["value"]), 9)
+        self.assertEqual(int(current[0]["n"]["value"]), 4)
+        self.assertEqual(int(previous[0]["n"]["value"]), 10)
         metadata = self.query(f'SELECT ?n WHERE {{ <{self.graph}> <http://rdfs.org/ns/void#triples> ?n }}')
         self.assertEqual(len(json.loads(metadata)["results"]["bindings"]), 1)
 
@@ -92,6 +95,38 @@ class OxigraphTests(unittest.TestCase):
                 result = self.query(build_canned_query(name, args), graph=self.graph)
                 self.assertIn("results", json.loads(result))
 
+    def participation_check(self):
+        """Run check 9, releasing the read-only handle before the next load.
+
+        The check has to open the store itself, and a live read-only handle
+        blocks the writer that the next load() needs.
+        """
+        querier = GraphQuerier(self.graph, store=self.store)
+        try:
+            return check_participation_edges(querier)
+        finally:
+            del querier
+            gc.collect()
+
+    def test_participation_edges_must_match_the_associations(self):
+        self.assertTrue(self.participation_check().passed)
+
+        # An edge with no association behind it: a membership claim carrying no
+        # evidence and no knowledge source.
+        self.parts[2].write_text(
+            build_query('HGNC:1 sagebrain:participates_in REACT:R-HSA-1, REACT:R-HSA-2 .'))
+        self.load(self.graph)
+        result = self.participation_check()
+        self.assertFalse(result.passed)
+        self.assertIn("no association behind them", result.detail)
+
+        # An association no property path can reach.
+        self.parts[2].write_text(build_query(""))
+        self.load(self.graph)
+        result = self.participation_check()
+        self.assertFalse(result.passed)
+        self.assertIn("participation.ttl was not written", result.detail)
+
     def test_standard_result_formats(self):
         body = 'SELECT ?symbol WHERE { ?gene a biolink:Gene; rdfs:label ?symbol }'
         self.assertEqual(self.query(body, "tsv", self.graph).strip(), '?symbol\n"SOD1"')
@@ -99,7 +134,7 @@ class OxigraphTests(unittest.TestCase):
 
     def test_raw_query_selects_its_own_graph(self):
         result = self.query(f'SELECT (COUNT(*) AS ?n) WHERE {{ GRAPH <{self.graph}> {{ ?s ?p ?o }} }}')
-        self.assertEqual(json.loads(result)["results"]["bindings"][0]["n"]["value"], "9")
+        self.assertEqual(json.loads(result)["results"]["bindings"][0]["n"]["value"], "10")
 
     def test_invalid_version_and_missing_store(self):
         with self.assertRaises(IngestError):
@@ -111,14 +146,14 @@ class OxigraphTests(unittest.TestCase):
         build_void("99997", {
             "doi": "10.5281/zenodo.21383214", "version": 'V99997 "test"',
             "publication_date": "2026-06", "license_id": "cc-by-4.0",
-        }, 9, "2026-09-15", self.void)
+        }, 10, "2026-09-15", self.void)
         self.load(self.graph)
         rows = json.loads(self.query(f'''SELECT ?doi ?n ?issued WHERE {{
             <{self.graph}> dcterms:source ?doi; void:triples ?n; dcterms:issued ?issued
         }}'''))["results"]["bindings"]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["doi"]["value"], "https://doi.org/10.5281/zenodo.21383214")
-        self.assertEqual(rows[0]["n"]["value"], "9")
+        self.assertEqual(rows[0]["n"]["value"], "10")
         self.assertEqual(rows[0]["issued"]["value"], "2026-06-01")
 
     def test_reload_replaces_metadata_for_only_its_release(self):

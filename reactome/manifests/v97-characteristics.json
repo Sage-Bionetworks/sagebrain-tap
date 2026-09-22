@@ -2,7 +2,7 @@
   "release": {
     "version": "97",
     "graph": "urn:sagebrain:reactome:v97",
-    "ttl_dir": "reactome/data/rdf",
+    "ttl_dir": "reactome/v97/data/rdf",
     "types_asserted": {
       "biolink:GeneToPathwayAssociation": 161818,
       "biolink:Gene": 11485,
@@ -11,18 +11,18 @@
     "taxa_asserted": {
       "NCBITaxon:9606": 14368
     },
-    "statements_in_release_graph": 1179747,
+    "statements_in_release_graph": 1321893,
     "matches_void_triples": true,
     "void": {
       "dataset": "urn:sagebrain:reactome:v97",
       "label": "Reactome v97 (Homo sapiens) -- SageBrain Tier 1 ingest",
       "source": "https://doi.org/10.5281/zenodo.21383214",
       "version": "V97",
-      "issued": "2026-06-01",
       "license": "https://creativecommons.org/licenses/by/4.0/",
-      "triples": 1179747,
+      "triples": 1321893,
       "in_taxon": "NCBITaxon:9606",
-      "generated_by": "urn:sagebrain:ingest:reactome:2026-08-23"
+      "generated_by": "urn:sagebrain:ingest:reactome:2026-09-21",
+      "issued": "2026-06-01"
     }
   },
   "sources": {
@@ -67,19 +67,23 @@
   },
   "files": {
     "pathways.ttl": {
-      "bytes": 528783,
+      "bytes": 528782,
       "statements": 11548
     },
     "associations.ttl": {
-      "bytes": 51087498,
+      "bytes": 51087616,
       "statements": 1167181
     },
+    "participation.ttl": {
+      "bytes": 7448953,
+      "statements": 142146
+    },
     "go_crosswalk.ttl": {
-      "bytes": 55614,
+      "bytes": 55613,
       "statements": 1018
     },
     "void.ttl": {
-      "bytes": 2747,
+      "bytes": 2514,
       "statements": 15
     }
   },
@@ -289,6 +293,14 @@
     },
     "source_accessions": 11651,
     "isoform_accessions": 310
+  },
+  "participation": {
+    "predicate": "sagebrain:participates_in",
+    "edges": 142146,
+    "distinct_association_pairs": 142146,
+    "matches_association_pairs": true,
+    "associations_per_edge": 1.138,
+    "note": "The same pairs as the associations, as plain edges. A union over evidence codes and source accessions: an edge cannot say whether the pair is curated (TAS) or orthology-projected (IEA), and some pairs are both. Join through the association for evidence, the originating accession or the knowledge source. Counts over these edges are subject to the same non-independence as the associations -- see propagation, below."
   },
   "gene_sets": {
     "genes_per_pathway": {

@@ -36,19 +36,27 @@ def _symbol(value: str, flag: str) -> str:
     return value
 
 
+# Membership questions go through the plain sagebrain:participates_in edge:
+# it names the relation, so the query cannot be answered by some other
+# association that happens to have a gene in subject position. Only the two
+# queries that project evidence join the reified association, because that is
+# where the evidence is -- the edge is a union over TAS and IEA and cannot
+# distinguish them. Acceptance check 9 keeps the two in step.
+
+
 CANNED_QUERIES = {
     "gene-pathway-count": {
         "help": "How many pathways is a gene part of? Requires --gene.",
         "needs_gene": True,
         "query": """\
 SELECT ?symbol (COUNT(DISTINCT ?pathway) AS ?pathway_count) WHERE {{
-  ?gene a biolink:Gene ; rdfs:label "{gene}" .
+  ?gene a biolink:Gene ; rdfs:label "{gene}" ; sagebrain:participates_in ?pathway .
   BIND("{gene}" AS ?symbol)
-  ?assoc biolink:subject ?gene ; biolink:object ?pathway .
 }} GROUP BY ?symbol""",
     },
     "gene-pathways": {
-        "help": "The actual pathway list (label + evidence) for a gene. Requires --gene.",
+        "help": "The actual pathway list (label + evidence) for a gene. Requires --gene. "
+                "Joins the association, not the plain edge: evidence lives there.",
         "needs_gene": True,
         "query": """\
 SELECT ?label ?evidence WHERE {{
@@ -65,7 +73,7 @@ SELECT ?symbol (COUNT(DISTINCT ?pathway) AS ?pathway_count) WHERE {{
   VALUES ?symbol {{ {symbols} }}
   OPTIONAL {{
     ?gene a biolink:Gene ; rdfs:label ?symbol .
-    OPTIONAL {{ ?assoc biolink:subject ?gene ; biolink:object ?pathway }}
+    OPTIONAL {{ ?gene sagebrain:participates_in ?pathway }}
   }}
 }} GROUP BY ?symbol ORDER BY DESC(?pathway_count)""",
     },
@@ -73,8 +81,7 @@ SELECT ?symbol (COUNT(DISTINCT ?pathway) AS ?pathway_count) WHERE {{
         "help": "Genes participating in the most distinct pathways, graph-wide. --limit (default 10).",
         "query": """\
 SELECT ?symbol (COUNT(DISTINCT ?pathway) AS ?pathway_count) WHERE {{
-  ?gene a biolink:Gene ; rdfs:label ?symbol .
-  ?assoc biolink:subject ?gene ; biolink:object ?pathway .
+  ?gene a biolink:Gene ; rdfs:label ?symbol ; sagebrain:participates_in ?pathway .
 }} GROUP BY ?symbol ORDER BY DESC(?pathway_count) LIMIT {limit}""",
     },
     "shared-pathways": {
@@ -82,15 +89,14 @@ SELECT ?symbol (COUNT(DISTINCT ?pathway) AS ?pathway_count) WHERE {{
         "needs_gene_pair": True,
         "query": """\
 SELECT ?label WHERE {{
-  ?geneA a biolink:Gene ; rdfs:label "{gene_a}" .
-  ?geneB a biolink:Gene ; rdfs:label "{gene_b}" .
-  ?assocA biolink:subject ?geneA ; biolink:object ?pathway .
-  ?assocB biolink:subject ?geneB ; biolink:object ?pathway .
+  ?geneA a biolink:Gene ; rdfs:label "{gene_a}" ; sagebrain:participates_in ?pathway .
+  ?geneB a biolink:Gene ; rdfs:label "{gene_b}" ; sagebrain:participates_in ?pathway .
   ?pathway rdfs:label ?label .
 }} ORDER BY ?label""",
     },
     "evidence-breakdown": {
-        "help": "Curated (TAS) vs orthology-inferred (IEA) association counts for a gene. Requires --gene.",
+        "help": "Curated (TAS) vs orthology-inferred (IEA) association counts for a gene. "
+                "Requires --gene. Joins the association, not the plain edge.",
         "needs_gene": True,
         "query": """\
 SELECT ?evidence (COUNT(*) AS ?n) WHERE {{
@@ -103,8 +109,7 @@ SELECT ?evidence (COUNT(*) AS ?n) WHERE {{
         "needs_gene": True,
         "query": """\
 SELECT DISTINCT ?go WHERE {{
-  ?gene a biolink:Gene ; rdfs:label "{gene}" .
-  ?assoc biolink:subject ?gene ; biolink:object ?pathway .
+  ?gene a biolink:Gene ; rdfs:label "{gene}" ; sagebrain:participates_in ?pathway .
   ?pathway skos:closeMatch ?go .
 }} ORDER BY ?go""",
     },

@@ -38,7 +38,8 @@ DEFAULT_MAX_SET_SIZE = 500
 #: Enough rows to see whether the biggest sets are one domain or many.
 TOP_N = 20
 
-CORE_FILES = ("pathways.ttl", "associations.ttl", "go_crosswalk.ttl")
+CORE_FILES = ("pathways.ttl", "associations.ttl", "participation.ttl",
+              "go_crosswalk.ttl")
 
 
 def local_name(term: str) -> str:
@@ -92,7 +93,7 @@ def statement_count(path: Path) -> int:
     return sum(len(pairs) for _subject, pairs in iter_blocks(path))
 
 
-# ── the three core files ──────────────────────────────────────────────────────
+# ── the four core files ───────────────────────────────────────────────────────
 
 
 class Release:
@@ -111,6 +112,7 @@ class Release:
         self.knowledge_sources: Counter = Counter()
         self.accessions: set[str] = set()
         self.isoform_accessions: set[str] = set()
+        self.participation: set[tuple[str, str]] = set()
         self.go_terms: dict[str, set[str]] = defaultdict(set)
 
 
@@ -174,6 +176,27 @@ def read_associations(path: Path, release: Release) -> None:
             release.accessions.add(accession)
             if "-" in accession.rsplit(":", 1)[-1]:
                 release.isoform_accessions.add(accession)
+
+
+def read_participation(path: Path, release: Release) -> None:
+    """The plain gene -> pathway edges, as pairs.
+
+    Collected as pairs rather than counted, because the only figure worth
+    reporting about this file is whether it says the same thing as the
+    association table -- a count that happened to match would not show that.
+    Matched on the local name for the same reason read_associations is: the
+    prefix and the term have both changed before.
+    """
+    for subject, pairs in iter_blocks(path):
+        if not subject.startswith("HGNC:"):
+            continue
+        for predicate, obj in pairs:
+            if local_name(predicate) != "participates_in":
+                continue
+            for token in obj.split(","):
+                token = token.strip()
+                if token.startswith("REACT:"):
+                    release.participation.add((subject, token))
 
 
 def read_go_crosswalk(path: Path, release: Release) -> None:
@@ -361,6 +384,37 @@ def propagation_section(release: Release) -> dict:
     }
 
 
+def participation_section(release: Release) -> dict:
+    """The plain edge against the association table it is derived from.
+
+    Reported as an agreement, not as a count. One fact in two shapes is a
+    standing invitation to drift, so the only honest summary of the second
+    shape is whether it still says what the first one says. Acceptance check 9
+    asks the same question of the loaded graph; this asks it of the Turtle,
+    which is what a consumer parsing these files gets.
+    """
+    association_pairs = {
+        (gene, pathway)
+        for gene, pathways in release.gene_pathways.items()
+        for pathway in pathways
+    }
+    return {
+        "predicate": "sagebrain:participates_in",
+        "edges": len(release.participation),
+        "distinct_association_pairs": len(association_pairs),
+        "matches_association_pairs": release.participation == association_pairs,
+        "associations_per_edge": num(
+            release.associations / max(len(release.participation), 1), 3),
+        "note": ("The same pairs as the associations, as plain edges. A union over "
+                 "evidence codes and source accessions: an edge cannot say whether "
+                 "the pair is curated (TAS) or orthology-projected (IEA), and some "
+                 "pairs are both. Join through the association for evidence, the "
+                 "originating accession or the knowledge source. Counts over these "
+                 "edges are subject to the same non-independence as the "
+                 "associations -- see propagation, below."),
+    }
+
+
 def gene_set_section(release: Release, min_size: int, max_size: int) -> dict:
     sizes = {pathway: len(genes) for pathway, genes in release.sets.items()}
     in_band = [p for p, size in sizes.items() if min_size <= size <= max_size]
@@ -416,6 +470,9 @@ def describe(ttl_dir: Path, version: str, sources_path: Path) -> dict:
     log("Reading associations (the large file) ...")
     read_associations(ttl_dir / "associations.ttl", release)
     log(f"  {release.associations:,} associations over {len(release.gene_symbols):,} genes")
+    log("Reading participation edges ...")
+    read_participation(ttl_dir / "participation.ttl", release)
+    log(f"  {len(release.participation):,} gene -> pathway edges")
     log("Reading GO crosswalk ...")
     read_go_crosswalk(ttl_dir / "go_crosswalk.ttl", release)
 
@@ -431,7 +488,7 @@ def describe(ttl_dir: Path, version: str, sources_path: Path) -> dict:
         for name in (*CORE_FILES, "void.ttl")
         if (ttl_dir / name).exists()
     }
-    # The loader puts exactly the three core files in the release graph and
+    # The loader puts exactly the four core files in the release graph and
     # VoID's own statements in the default graph, so these two numbers must
     # agree. When they do not, the graph and its self-description have drifted.
     core_statements = sum(files[name]["statements"] for name in CORE_FILES if name in files)
@@ -474,6 +531,7 @@ def describe(ttl_dir: Path, version: str, sources_path: Path) -> dict:
             "source_accessions": len(release.accessions),
             "isoform_accessions": len(release.isoform_accessions),
         },
+        "participation": participation_section(release),
         "gene_sets": gene_set_section(release, DEFAULT_MIN_SET_SIZE, DEFAULT_MAX_SET_SIZE),
         "propagation": propagation_section(release),
         "go_crosswalk": {

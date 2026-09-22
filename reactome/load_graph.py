@@ -1,6 +1,6 @@
 """Replace a Reactome release graph in Oxigraph and write VoID provenance.
 
-The three core Turtle files go into urn:sagebrain:reactome:v<version>;
+The four core Turtle files go into urn:sagebrain:reactome:v<version>;
 void.ttl goes into the default graph. Retired pathways are loaded separately."""
 
 from __future__ import annotations
@@ -15,7 +15,12 @@ from .common import IngestError, TurtleWriter, iri, literal, log, typed_literal
 from shared.oxigraph import load_endpoint, load_oxigraph
 
 
-TTL_PARTS = ("pathways.ttl", "associations.ttl", "go_crosswalk.ttl")
+# participation.ttl is the plain gene -> pathway edge for the same pairs
+# associations.ttl reifies. Both are loaded: the traversal edge is not optional
+# decoration on the association, it is what makes the pair reachable by a
+# property path, and a release carrying only one of the two would make
+# acceptance check 9 a check of nothing.
+TTL_PARTS = ("pathways.ttl", "associations.ttl", "participation.ttl", "go_crosswalk.ttl")
 
 PRE_PROPAGATION_NOTE = (
     "Gene-to-pathway associations are derived from Reactome's "

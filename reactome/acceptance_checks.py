@@ -330,6 +330,82 @@ def check_nf1(q: GraphQuerier) -> Result:
     )
 
 
+def check_participation_edges(q: GraphQuerier) -> Result:
+    """The plain edge and the reified associations must assert the same pairs.
+
+    The release states one fact in two shapes: sagebrain:participates_in for
+    traversal, biolink:GeneToPathwayAssociation for evidence and provenance.
+    Nothing in RDF ties the two together -- no reasoner derives either from the
+    other -- so the agreement is an invariant this ingest maintains by writing
+    both from one set, and an invariant nobody checks is one that is already
+    broken somewhere.
+
+    Both directions, because they fail differently. An edge with no association
+    behind it is a fact with no evidence and no knowledge source, which is the
+    one thing this graph is not allowed to contain. An association with no edge
+    is a fact no property path can reach: every query still runs, and quietly
+    returns less.
+
+    One grouped UNION over both shapes rather than the obvious pair of FILTER
+    NOT EXISTS queries. The readable form asks the store, once per edge, to
+    re-find the associations for that pair, and at this size it does not
+    finish: 100+ seconds and still running against V97, where this returns in
+    about one. Grouping by (gene, pathway) scans each shape once and reads both
+    answers off the same aggregate -- a group with no association is an
+    unsupported edge, a group with no edge is an unreachable pair.
+    """
+    edges = int(q.select(f"""
+        SELECT (COUNT(*) AS ?n) WHERE {{
+          GRAPH <{q.graph}> {{ ?gene sagebrain:participates_in ?pathway }}
+        }}
+    """)[0]["n"])
+    if edges == 0:
+        return Result(
+            "9. Participation edges match the associations", False,
+            "no sagebrain:participates_in edges in the release graph -- "
+            "participation.ttl was not written, or not loaded",
+        )
+
+    row = q.select(f"""
+        SELECT (SUM(IF(?associations = 0, 1, 0)) AS ?unsupported)
+               (SUM(IF(?edge = 0, 1, 0)) AS ?unreachable)
+               (COUNT(*) AS ?pairs) WHERE {{
+          {{
+            SELECT ?gene ?pathway
+                   (COUNT(?assoc) AS ?associations)
+                   (COUNT(?seen) AS ?edge) WHERE {{
+              GRAPH <{q.graph}> {{
+                {{
+                  ?assoc a biolink:GeneToPathwayAssociation ;
+                         biolink:subject ?gene ;
+                         biolink:object  ?pathway .
+                }} UNION {{
+                  ?gene sagebrain:participates_in ?pathway .
+                  BIND(?pathway AS ?seen)
+                }}
+              }}
+            }} GROUP BY ?gene ?pathway
+          }}
+        }}
+    """)[0]
+    unsupported = int(row["unsupported"] or 0)
+    unreachable = int(row["unreachable"] or 0)
+
+    if unsupported or unreachable:
+        return Result(
+            "9. Participation edges match the associations", False,
+            f"{edges:,} edges, but {unsupported:,} have no association behind them "
+            f"and {unreachable:,} association pairs have no edge. Both are written "
+            "from one set in transform_associations.py, so a difference means the "
+            "release graph is part of one run and part of another.",
+        )
+    return Result(
+        "9. Participation edges match the associations", True,
+        f"{edges:,} sagebrain:participates_in edges, exactly the "
+        f"{int(row['pairs']):,} distinct (subject, object) pairs of the associations",
+    )
+
+
 def check_model_terms(q: GraphQuerier, model_ttl=MODEL_URL) -> Result:
     """Every sagebrain: term in the graph should be defined in the model repo.
 
@@ -350,7 +426,7 @@ def check_model_terms(q: GraphQuerier, model_ttl=MODEL_URL) -> Result:
         }} GROUP BY ?term
     """)
     result = review(counts_from_iris((r["term"], r["n"]) for r in rows), model_ttl)
-    return Result("11. Model terms are defined in sagebrain-model",
+    return Result("12. Model terms are defined in sagebrain-model",
                   result.passed, result.detail, critical=False)
 
 
@@ -368,7 +444,7 @@ def check_round_trip(q: GraphQuerier, sample_size: int, seed: int) -> Result:
         }}
     """)
     if not pathways:
-        return Result("9. Content Service round-trip", False, "no pathways with associations")
+        return Result("10. Content Service round-trip", False, "no pathways with associations")
 
     ids = sorted(p["pathway"].rsplit(":", 1)[-1] for p in pathways)
     chosen = random.Random(seed).sample(ids, min(sample_size, len(ids)))
@@ -400,7 +476,7 @@ def check_round_trip(q: GraphQuerier, sample_size: int, seed: int) -> Result:
             with urllib.request.urlopen(request, timeout=120) as response:
                 entities = json.load(response)
         except (urllib.error.URLError, json.JSONDecodeError) as error:
-            return Result("9. Content Service round-trip", False,
+            return Result("10. Content Service round-trip", False,
                           f"skipped -- Content Service unreachable ({error})", critical=False)
         theirs = {
             e["identifier"] for e in entities
@@ -419,13 +495,13 @@ def check_round_trip(q: GraphQuerier, sample_size: int, seed: int) -> Result:
     detail = "; ".join(lines)
     if failures:
         return Result(
-            "9. Content Service round-trip", False,
+            "10. Content Service round-trip", False,
             f"{failures}/{len(chosen)} pathways differ. {detail}. Differences of a few "
             "accessions are usually unmapped entries -- check unmapped_accessions.tsv "
             "before treating this as a transform bug.",
             critical=False,
         )
-    return Result("9. Content Service round-trip", True, detail)
+    return Result("10. Content Service round-trip", True, detail)
 
 
 def check_triple_count(q: GraphQuerier, low: int, high: int) -> Result:
@@ -435,10 +511,10 @@ def check_triple_count(q: GraphQuerier, low: int, high: int) -> Result:
     count = int(rows[0]["n"])
     if not (low <= count <= high):
         return Result(
-            "10. Triple count in range", False,
+            "11. Triple count in range", False,
             f"{count:,} triples, outside the expected {low:,}-{high:,}",
         )
-    return Result("10. Triple count in range", True, f"{count:,} triples")
+    return Result("11. Triple count in range", True, f"{count:,} triples")
 
 
 def main() -> int:
@@ -475,6 +551,7 @@ def main() -> int:
         check_no_orphans(querier),
         check_evidence_codes(querier),
         check_nf1(querier),
+        check_participation_edges(querier),
     ]
     if args.round_trip:
         results.append(check_round_trip(querier, args.round_trip, args.seed))

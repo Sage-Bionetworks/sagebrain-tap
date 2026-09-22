@@ -67,6 +67,11 @@ python -m reactome.queries --canned shared-pathways --genes APP,PSEN1
 python -m reactome.queries --canned hub-genes --limit 10 --format json
 ```
 
+Membership queries traverse `sagebrain:participates_in`, so they cannot be
+answered by some other association that happens to have a gene in subject
+position. `gene-pathways` and `evidence-breakdown` join the reified association
+instead, because they project evidence and the plain edge does not carry it.
+
 `--help` lists all queries. Disease panels keep genes absent from the graph as
 zero-count rows; a zero means no association in this ingest, not no biological role.
 Raw queries (argument or stdin) must select their own graph:
@@ -83,10 +88,10 @@ python -m reactome.queries \
 | `download_sources` | Versioned Reactome files, HGNC mappings, DOI and checksums |
 | `verify_columns` | TSV layout gate and committed report |
 | `transform_pathways` | `pathways.ttl`; filtered IDs in `interim/` |
-| `transform_associations` | `associations.ttl`; unmapped accessions in `reports/` |
+| `transform_associations` | `associations.ttl` and `participation.ttl`; unmapped accessions in `reports/` |
 | `transform_go` | `go_crosswalk.ttl` |
 | `load_graph` | Release graph and `void.ttl` metadata in the default graph |
-| `acceptance_checks` | Species, hierarchy, evidence, NF1, release-size and model-term checks |
+| `acceptance_checks` | Species, hierarchy, evidence, NF1, edge/association agreement, release-size and model-term checks |
 | `describe_data` | Release characteristics as JSON, in `manifests/` |
 
 The pipeline runs these in order; `describe_data` follows the acceptance checks,
@@ -101,6 +106,12 @@ See [schema](../schema/reactome.yaml), [design decisions](DESIGN.md) and
 - `_All_Levels` already includes ancestor pathways. Do not propagate again or
   treat per-pathway gene counts as independent enrichment categories.
 - Genes use HGNC IDs and are emitted as typed `biolink:Gene` nodes.
+- Gene membership is written twice, from one set: `participation.ttl` carries the
+  distinct pairs as plain `sagebrain:participates_in` edges for traversal,
+  `associations.ttl` reifies each row so evidence, accession and knowledge source
+  have somewhere to live. The edge is a union over evidence codes and accessions
+  and cannot say whether a pair is curated or orthology-projected; join the
+  association when that matters. Acceptance check 9 proves the two agree.
 - Associations retain the original UniProt accession as `biolink:original_subject`,
   Biolink's own slot for a pre-normalization subject. It is string-valued, so the
   accession is recorded but not traversable. Isoform
@@ -126,8 +137,8 @@ It counts the release graph's statements from the Turtle and checks that total
 against the `void:triples` the loader asserted.
 
 The [recorded V97 run](manifests/v97-acceptance.md) has 2,883 pathways,
-11,485 genes and 1,179,747 release-graph triples. Its provenance is
-`10.5281/zenodo.21383214`.
+11,485 genes, 161,818 associations over 142,146 distinct gene-pathway pairs, and
+1,321,893 release-graph triples. Its provenance is `10.5281/zenodo.21383214`.
 
 Acceptance checks fail on structural errors; Content Service differences are
 warnings. Use `--expected-pathways` to enable comparison with a release's count.
@@ -154,7 +165,7 @@ curl --fail -X POST -H 'Content-Type: text/turtle' \
 
 Retired pathways retain their label and last-seen release in the cumulative
 `urn:sagebrain:reactome:retired` graph. Append with POST, don't replace it.
-The regular loader loads only the three core files and VoID, so retirement
+The regular loader loads only the four core files and VoID, so retirement
 files are not accidentally mixed into a release. Successor inference by exact
 name is available with `--infer-successor-by-name` and is off by default.
 

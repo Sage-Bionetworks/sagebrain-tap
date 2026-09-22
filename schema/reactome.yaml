@@ -3,8 +3,9 @@ name: sagebrain-reactome
 title: SageBrain Reactome Tier 1 Ingest
 description: >-
   LinkML definitions for the Reactome Tier 1 RDF ingest: pathway nodes, the
-  pathway hierarchy, the GO crosswalk, gene nodes, and the reified
-  gene-to-pathway association that joins the last two.
+  pathway hierarchy, the GO crosswalk, gene nodes, and the two shapes that join
+  the last two -- the plain sagebrain:participates_in edge and the reified
+  gene-to-pathway association.
 
   Scope is Homo sapiens (NCBITaxon:9606) only. Species is carried on every node
   via biolink:in_taxon, so widening scope later is a filter change and a reload,
@@ -21,7 +22,7 @@ default_range: string
 prefixes:
   # One model namespace, owned by ontology/main/sagebrain.ttl in the
   # sagebrain-model repo. A term this ingest needs before the model has
-  # ratified it is minted here anyway and reported by acceptance check 11.
+  # ratified it is minted here anyway and reported by acceptance check 12.
   # See shared/rdf.py NAMESPACES.
   sagebrain: https://w3id.org/synapse/sagebrain#
   linkml: https://w3id.org/linkml/
@@ -49,8 +50,11 @@ imports:
 # biolink:has_evidence, biolink:primary_knowledge_source, biolink:in_taxon and
 # biolink:part_of were all verified present in this release before the predicates
 # below were finalised (plan section 4 and open decision 4).
+# sagebrain:participates_in is not Biolink's: it is the shared model's own
+# Gene -> Pathway connection, declared there as a subproperty of Biolink's.
 settings:
   biolink_version: 4.4.4
+  sagebrain_model_version: v0.2
 
 # ── enums ─────────────────────────────────────────────────────────────────────
 
@@ -123,6 +127,39 @@ slots:
       Reactome pathways and GO BP terms are not co-extensive, and the granularity
       mismatch is structural. Asserting equivalence corrupts anything downstream
       that reasons over it.
+
+  participates_in:
+    slot_uri: sagebrain:participates_in
+    range: Pathway
+    multivalued: true
+    description: >-
+      The plain traversal edge: a pathway this gene is a member of. Ratified in
+      sagebrain-model v0.2 as an owl:ObjectProperty with domain biolink:Gene,
+      range biolink:Pathway and rdfs:subPropertyOf biolink:participates_in, so
+      it is the shared model's own connection rather than a term this ingest
+      had to mint.
+
+      Asserted alongside the reified association, not instead of it, and
+      derived from the same set in the same pass. RDF entails neither from the
+      other: without the edge there is no named gene-to-pathway relation in the
+      graph at all, and a property path
+      (sagebrain:participates_in/biolink:part_of*) cannot be written; without
+      the association there is nowhere for the evidence, the originating
+      accession or the knowledge source to live. Acceptance check 9 verifies
+      the two assert the same pairs.
+
+      ONE EDGE PER DISTINCT PAIR, and therefore a union over evidence codes and
+      over source accessions. A pair reached from several accessions, or
+      curated in one and orthology-projected in another, is one edge, and the
+      edge cannot say which: join the association when the distinction matters.
+      Do not read a count of these edges as a count of independent
+      observations -- see GeneToPathwayAssociation on pre-propagation, which
+      applies here unchanged.
+
+      The biolink:participates_in superproperty is deliberately not
+      materialised. Nothing in the query stack performs rdfs:subPropertyOf
+      entailment, and emitting both terms would double the edges to answer a
+      question the model-aligned one already answers.
 
   subject:
     slot_uri: biolink:subject
@@ -214,6 +251,7 @@ classes:
       - id
       - name
       - in_taxon
+      - participates_in
     slot_usage:
       id:
         pattern: "^HGNC:\\d+$"
@@ -225,7 +263,9 @@ classes:
     class_uri: biolink:GeneToPathwayAssociation
     description: >-
       Reified gene-participates-in-pathway association, mirroring the association
-      pattern used elsewhere in the graph.
+      pattern used elsewhere in the graph. The same membership is also asserted
+      as a plain sagebrain:participates_in edge on the gene; this class is what
+      makes that edge accountable, and carries everything the edge cannot.
 
       Because UniProt2Reactome_All_Levels.txt is pre-propagated, a gene appears
       against every ancestor pathway, not just the leaf it participates in.

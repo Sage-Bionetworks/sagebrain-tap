@@ -48,6 +48,8 @@ HGNC:7765
     rdfs:label "NF1" ;
     biolink:in_taxon NCBITaxon:9606 .
 
+HGNC:7765 sagebrain:participates_in REACT:R-HSA-5673001 .
+
 [] a biolink:GeneToPathwayAssociation ;
    biolink:subject HGNC:7765 ;
    biolink:object REACT:R-HSA-5673001 ;
@@ -56,6 +58,41 @@ HGNC:7765
    biolink:primary_knowledge_source infores:reactome ;
    biolink:original_subject "UNIPROT:P21359" .
 ```
+
+Gene membership is asserted in two shapes, written from one set in one pass.
+`sagebrain:participates_in` carries the distinct (gene, pathway) pairs as plain
+edges; the reified `biolink:GeneToPathwayAssociation` carries every
+(gene, pathway, evidence, accession) row. Neither is derivable from the other:
+RDF does not entail the edge from the association, and the association cannot be
+reconstructed from the edge. Both are needed, and the agreement between them is
+an invariant this ingest maintains and acceptance check 9 verifies.
+
+The edge exists because a relation nothing names cannot be traversed.
+`?gene sagebrain:participates_in/biolink:part_of* ?ancestor` is one property
+path; the reified equivalent is a two-triple join through a blank node per hop,
+and a consumer that reads the graph as a graph -- a property-graph export, an
+embedding, a neighbourhood expansion -- sees no gene-pathway relation at all
+without it. Matching on `biolink:subject`/`biolink:object` instead is not a
+substitute: it names no relation, so it silently widens to any association that
+happens to have a gene in subject position.
+
+The term is `sagebrain:participates_in`, ratified in the shared model as an
+`owl:ObjectProperty` with `rdfs:domain biolink:Gene`, `rdfs:range
+biolink:Pathway` and `rdfs:subPropertyOf biolink:participates_in`. This is the
+first place a Reactome release satisfies one of the shared model's own
+connections rather than being Biolink-shaped data that happens to sit in a
+SageBrain graph. The `biolink:` superproperty is not materialised: nothing in
+this stack reasons over `rdfs:subPropertyOf`, and doubling the edges to serve a
+query the model-aligned term already serves buys nothing.
+
+What the edge cannot say is the cost. It is a union over evidence codes and
+over source accessions: one pair can come from several accessions and carry TAS
+and IEA at once, and 11% of the pairs at V97 are IEA-only -- orthology
+projections, not curation. The association stays authoritative for evidence,
+for the originating accession and for the knowledge source, and the two queries
+that report evidence join it rather than the edge. Source attribution for the
+edge itself rests on the named graph, which is per release and therefore per
+source; a cross-graph union query must bind the graph to keep it.
 
 Both endpoints are typed nodes. Every gene that
 survives UniProt→HGNC resolution gets a `biolink:Gene` node carrying its symbol
@@ -67,8 +104,9 @@ cannot silently match an identifier the ingest never asserted.
 External entities use identifiers.org URIs (Reactome, HGNC, UniProt) or OBO URIs
 (taxa, GO, ECO). Model terms use `sagebrain:`, the only local namespace: a term
 this ingest needs before sagebrain-model ratifies it is minted there anyway and
-listed by acceptance check 11 until it is defined. The release graph currently
-mints none; `release_diff.py` mints two for the separate retired graph.
+listed by acceptance check 12 until it is defined. The release graph uses one,
+`sagebrain:participates_in`, which the model ratified in v0.2;
+`release_diff.py` mints two undefined ones for the separate retired graph.
 
 The UniProt accession each association came from is kept as
 `biolink:original_subject`, Biolink's own slot for what a source called the
@@ -89,6 +127,10 @@ from the gene with `biolink:has_gene_product`.
 4. `_All_Levels` is already transitively closed. Do not propagate again.
    Counts across pathways are not independent; VoID records this limitation.
 5. Preserve `TAS` → `ECO:0000304` and `IEA` → `ECO:0000501`. Unknown codes fail.
+6. Write the plain `sagebrain:participates_in` edge and the reified association
+   from the same in-memory set, in the same run. Two derivations of one fact
+   drift; one derivation cannot. The check is still run against the loaded
+   graph, because that is where a partial reload would show up.
 
 Unmapped accessions are reported, with a default failure threshold of 10% of
 in-scope rows. The recorded V97 run lost 3.01% after isoform normalization.
@@ -107,8 +149,15 @@ do not identify authoritative successors; exact-name inference is optional.
 
 Check human taxa first, then human stable IDs, exactly one taxon per entity,
 pathway count, acyclic hierarchy, resolved hierarchy endpoints, evidence codes,
-NF1 membership across hierarchy levels and total triple count (1–4 million).
-Use an explicit expected pathway count for the release-count comparison.
+NF1 membership across hierarchy levels, participation-edge agreement and total
+triple count (1–4 million). Use an explicit expected pathway count for the
+release-count comparison.
+
+The participation check runs both directions. An edge with no association behind
+it is a membership claim with no evidence and no knowledge source, which this
+graph is not allowed to contain. An association pair with no edge is a fact no
+property path can reach: every query still runs and quietly returns less, which
+is the failure mode a triple count would never catch.
 
 Then check that every `sagebrain:` term in the graph is defined in
 sagebrain-model, read from its default branch rather than a local clone. A
@@ -128,6 +177,7 @@ loading leaf-only associations. Keep intermediates and reports outside `rdf/`.
 ## 9. Execution
 
 Download → verify → pathways → associations → GO → load → acceptance checks.
+The association step writes both `associations.ttl` and `participation.ttl`.
 Pathways writes the ID set consumed by the next two transforms. Release diffing
 is separate because it needs two releases. Local and HTTP queries select the
 same named graph.
