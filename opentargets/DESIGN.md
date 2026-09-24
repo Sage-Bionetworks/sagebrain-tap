@@ -1,68 +1,147 @@
 # Open Targets design decisions
 
-Implemented for the drug layer: molecule identity, mechanism of action and clinical
-indication. Run instructions are in [README.md](README.md); recorded results are in
-[manifests/](manifests/). This document records the model and validation contract.
+This document records the drug-layer model and validation contract. See
+[README.md](README.md) for operations and release statistics,
+[TRIALS.md](TRIALS.md) for the scoped but unbuilt trial layer,
+[datasets/](datasets/) for per-dataset source notes, and
+[manifests/](manifests/) for recorded results.
 
-## 1. Scope
+## 1. Release contents and ingest scope
 
-In: `drug_molecule`, `drug_mechanism_of_action`, `clinical_indication`, and `disease`
-for labels. Pinned and layout-gated but **not projected**: `clinical_report`. Out:
-target–disease association scores, the 3.2 GB `variant` index, `target_essentiality`,
-and everything else in the release.
+Open Targets Platform 26.06 is a collection of related datasets. Its
+`release_data_integrity` inventory lists 56 directories under
+`output/`, covering targets, diseases, drugs, clinical records, genetic evidence,
+association scores and supporting annotations. This ingest downloads five of
+those datasets as Parquet; each can contain one file or several parts.
 
-`clinical_report` is deliberately deferred rather than dropped. Indication edges carry
-a report *count*, which is enough to tell a stage backed by 14 reports from one backed
-by a single record. The reports themselves — trial status, stop reasons, expert review,
-countries — are a layer with its own modelling questions, and pinning them now means a
-later pass starts from bytes that are already identified.
+The selected inputs are listed below. Counts are **source rows in release 26.06**,
+from the [source manifest](manifests/26.06-sources.tsv), not emitted edge counts.
+The [column report](manifests/26.06-column-verification.md) records their layouts.
 
-Association scores are excluded on principle, not for size. They are composites over
-heterogeneous evidence; useful for ranking, wrong as evidence, and a graph that carries
-them invites exactly the misuse where a number is quoted without the evidence behind it.
+| Source dataset | Rows | What the source contains | What this ingest emits |
+|---|---:|---|---|
+| [`drug_molecule`](datasets/drug_molecule.md) | 22,407 | ChEMBL IDs, names, synonyms, trade names, modality, structures, parent molecule and overall clinical stage | Molecule nodes and properties; a separate label TSV |
+| [`drug_mechanism_of_action`](datasets/drug_mechanism_of_action.md) | 6,500 | Lists of ChEMBL drugs and Ensembl targets, action, mechanism text and target type/name | Drug–gene associations and HGNC gene nodes; rows expand across drugs and resolved targets |
+| [`clinical_indication`](datasets/clinical_indication.md) | 86,468 | Drug–disease pairs, maximum clinical stage and supporting report IDs | Indication associations with stage and report count |
+| [`disease`](datasets/disease.md) | 47,080 | MONDO, EFO and other disease/phenotype IDs, names, synonyms, ontology ancestry, cross-references and therapeutic areas | Typed nodes, labels and synonyms for the 3,749 terms referenced by indications; no ontology hierarchy |
+| [`clinical_report`](datasets/clinical_report.md) | 289,955 | Trials, labels and regulatory records, including stage, drugs, diseases, trial dates, stop reasons and review information | Nothing yet: downloaded, pinned and validated; the trial layer scoped in [TRIALS.md](TRIALS.md) is not built |
+
+Open Targets uses an [EFO-based disease/phenotype ontology](https://platform-docs.opentargets.org/disease-or-phenotype)
+that includes MONDO terms. In 26.06, 70,521 of 86,468 indication rows (about 82%)
+reference MONDO IDs; others use HP (HPO), EFO, Orphanet, MP and additional prefixes
+listed in the [prefix audit](manifests/26.06-column-verification.md#disease-id-prefixes-used-by-clinical_indication).
+The ingest preserves these source identifiers rather than normalizing all terms
+to MONDO.
+
+ChEMBL IDs connect molecules to mechanisms and indications; disease IDs connect
+indications to term labels. Mechanism targets are Ensembl IDs, resolved through a
+separately pinned HGNC snapshot so they share gene identity with the Reactome
+ingest and join its gene nodes directly by IRI. The indication transform counts
+`clinicalReportIds` directly: it neither joins to `clinical_report` nor emits the
+report IDs or individual report records.
+
+The remaining 51 output directories are currently not downloaded or projected by the
+default pipeline, though the pipeline may additionally tap these later. Examples from the pinned release inventory:
+
+| Excluded data | Dataset examples | Scope decision |
+|---|---|---|
+| Target–disease scores | `association_overall_*`, `association_by_datasource_*`, `association_by_datatype_*` | Outside the initial drug-layer scope; may be added later for ranking, alongside the evidence they summarize |
+| Supporting evidence and genetics | `evidence_*`, `variant`, `study`, `credible_set`, `colocalisation`, `l2g_prediction` | Separate evidence and variant models would be needed |
+| Target and biological annotations | `target`, `target_essentiality`, `target_prioritisation`, `baseline_expression`, `interaction`, `reactome`, `go` | This pass emits only the gene nodes needed by mechanisms |
+| Derived drug–target–disease join | `clinical_target` | Reproducible from datasets already ingested, and with a coarser clinical stage |
+| Additional clinical and drug data | `drug_warning`, `pharmacogenomics`, `openfda_significant_adverse_drug_reactions` | Outside the current molecule/mechanism/indication model |
+
+`clinical_target` is excluded on different grounds than the rest since it is somewhat
+redundant with what the release already builds from `clinical_report` and
+`drug_mechanism_of_action` under the same report QC filter as `clinical_indication`;
+its drug–target–disease triples are exactly the join of those two datasets on
+drug. Its `maxClinicalStage` is scoped to the drug–target pair, so reaching the same
+claim through the drug keeps the more precise per-pair `sagebrain:max_clinical_stage`.
+The trials it adds, whose diseases never mapped to an ontology term, are already in
+the pinned `clinical_report`.
+
+Selecting a dataset also does not imply usage of all its fields. For example,
+molecule `crossReferences` and disease ancestry/cross-references stay out of the
+graph. [common.py](common.py)'s `DATASETS` defines the downloaded subset and
+required columns; the transforms define which values are emitted.
+
+### Ingest flow
+
+Solid arrows show data flow. Dashed branches show retained or excluded data with
+no RDF output. HGNC is an independent input, outside the Open Targets release.
+
+```mermaid
+flowchart TD
+    release["Open Targets 26.06 release<br/>56 output directories"]
+    selected["Download five selected datasets<br/>Verify files against integrity manifest"]
+    gate["Validate required columns,<br/>vocabularies and indication ID prefixes"]
+    omitted["51 directories excluded<br/>Scores, evidence, genetics, target annotations,<br/>derived joins, additional clinical/drug data and other outputs"]
+
+    release --> selected --> gate
+    release -.-> omitted
+
+    molecules["drug_molecule<br/>Transform molecules"]
+    mechanisms["drug_mechanism_of_action<br/>Resolve targets and transform mechanisms"]
+    indications["clinical_indication + disease<br/>Transform indications and referenced terms"]
+    reports["clinical_report<br/>Pinned and validated; trial layer scoped, not built"]
+    hgnc["HGNC snapshot<br/>Verify separate release pin"]
+    labels["drug_molecule<br/>Export label TSV outside RDF"]
+
+    gate --> molecules
+    gate --> mechanisms
+    gate --> indications
+    gate --> labels
+    gate -.-> reports
+    hgnc --> mechanisms
+
+    load["Load into Oxigraph<br/>Release graph + default-graph VoID metadata"]
+    molecules -->|molecules.ttl| load
+    mechanisms -->|mechanisms.ttl| load
+    indications -->|indications.ttl| load
+    load --> checks["Run acceptance checks<br/>on the loaded graph"]
+
+    classDef deferred fill:#fff4ce,stroke:#8a6500,color:#333;
+    classDef excluded fill:#f0f0f0,stroke:#666,color:#333;
+    class reports deferred;
+    class omitted excluded;
+```
+
+The diagram shows dependencies; [pipeline.py](pipeline.py) runs the transforms
+and label export sequentially. The three transforms read the verified source
+files independently, then the loader combines their Turtle outputs.
 
 ## 2. Sources and provenance
 
-Upstream publishes `release_data_integrity`, a SHA-1 per file for the whole release,
-with `release_data_integrity.sha1` alongside. So:
+Discover dataset filenames from FTP: Spark part names can change each release.
+Verify and record the inputs in this order:
 
-1. Fetch the `.sha1`, fetch the manifest, check the manifest against it. An unverified
-   manifest cannot be used to verify anything else.
-2. Check every downloaded part against the manifest.
-3. Commit `manifests/<release>-sources.tsv` with upstream's SHA-1, our SHA-256, bytes
-   and row counts; record `sha1(release_data_integrity)` as the release anchor in
-   `release.json` and in VoID.
+1. Verify `release_data_integrity` against `release_data_integrity.sha1`.
+2. Verify each downloaded part against that manifest.
+3. Commit `manifests/<release>-sources.tsv` with upstream SHA-1, local SHA-256,
+   byte counts and row counts. Record the manifest's SHA-1 as the release anchor
+   in `release.json` and VoID metadata.
 
-The anchor plays the role Reactome's Zenodo version DOI plays: one digest that
-identifies the whole release.
+Every pinned part must be present and unchanged; extra, unpinned Parquet files
+also fail verification because transforms read whole dataset directories.
+`--skip-download` still verifies local inputs.
 
-Dataset **file names are discovered, not hardcoded**. Some datasets are Spark output
-whose part names embed a per-release UUID, others a single `<name>.parquet`. The listing
-is read from FTP and the bytes are then pinned by digest, which is what actually
-identifies them.
+HGNC is pinned separately in `manifests/<release>-hgnc.json` and verified on
+download, offline verification and mechanism transformation. Add a reviewed
+snapshot pin for each new release; normal runs never replace it.
 
-`croissant.json` supplies the publication date and licence (CC0-1.0). `manifest.json`
-is 21 MB of build logs, so only its top-level `result` is read, by streaming the first
-chunk — see the trap in README.
+`croissant.json` supplies the publication date and licence. Only the top-level
+`result` is read from the large build-log `manifest.json`; it is recorded but
+does not gate ingestion. See the [26.06 packaging failure](README.md#a-trap-worth-knowing).
 
-## 3. Verified layouts
+## 3. Target model
 
-`verify_schemas` gates every release on the columns this ingest reads, not on every
-column the dataset has: a column upstream adds is not a problem, one it removes is.
-It also checks each controlled vocabulary against the release's actual values and the
-disease-id prefixes against the IRI map.
+Biolink supplies classes and predicates; [schema/opentargets.yaml](../schema/opentargets.yaml)
+defines the model. Namespace bases are in [shared/rdf.py](../shared/rdf.py) and
+[common.py](common.py). `sagebrain:` is the only local namespace; acceptance
+check 11 reports terms not yet defined in sagebrain-model.
 
-This gate matters more here than for Reactome because **Open Targets reorganises
-datasets between releases** — `clinical_indication` and `clinical_report` are a recent
-split, and 26.06 still ships a `clinical_target` next to them. A run that discovers
-such a change by producing an empty graph has wasted the run and can be mistaken for a
-source with no data.
-
-## 4. Target model
-
-Biolink supplies the classes and predicates. [shared/rdf.py](../shared/rdf.py) defines
-namespace bases. `sagebrain:` is the only local namespace; the 11 terms this ingest
-mints are listed by acceptance check 11 until sagebrain-model ratifies them.
+Mechanisms and indications are association nodes, with typed endpoints and
+`infores:open-targets` provenance. Here, “edge” refers to an association record:
 
 ```turtle
 CHEMBL:CHEMBL2103875
@@ -94,101 +173,91 @@ HGNC:6840  a biolink:Gene ; rdfs:label "MAP2K1" ; biolink:in_taxon NCBITaxon:960
    biolink:primary_knowledge_source infores:open-targets .
 ```
 
-Both endpoints of every association are typed nodes, following Reactome: a consumer can
-label a gene or a disease without reading the association table, and a query that joins
-on one cannot silently match an identifier the ingest never asserted.
+## 4. Modelling rules
 
-## 5. Modelling rules
+- **Gene identity.** Resolve Ensembl targets to HGNC so they join Reactome genes
+  by IRI. Preserve the Ensembl ID as a string in `biolink:original_object`.
+  Multiple HGNC matches produce multiple associations. Fail when more than 10%
+  of target lookups are unresolved; the threshold counts lookups, not distinct IDs.
+- **Mechanisms.** Use `biolink:affects` and preserve the source action in
+  `sagebrain:action_type`. Keep `sagebrain:target_type` on every association:
+  family and complex members come from a group claim, not independently measured
+  interactions. Filter by target type when counting drug–target interactions.
+- **Indications.** Use `biolink:treats_or_applied_or_studied_to_treat` because the
+  dataset includes investigational uses. Clinical stage belongs to the specific
+  drug–disease pair; its maximum does not preserve trial history or stop reasons.
+- **Molecule classes.** Map `Small molecule` to `biolink:SmallMolecule` and other
+  modalities to `biolink:ChemicalEntity`. Preserve `drugType` as
+  `sagebrain:drug_type`; finer classification is not validated by this ingest,
+  and `ChemicalEntity` is a loose fit for cell therapies.
+- **Disease and phenotype nodes.** Emit only terms referenced by indications.
+  Type by ID prefix: MONDO uses `biolink:Disease`; HP/MP use
+  `biolink:PhenotypicFeature`; GO/OBA use
+  `biolink:DiseaseOrPhenotypicFeature`. See `DISEASE_NODE_CLASS` in `common.py`
+  for the full mapping. Unknown IRI prefixes fail instead of producing guessed IRIs.
+- **Names and parents.** Preserve synonyms and trade names as `skos:altLabel`.
+  Emit `sagebrain:parent_molecule` from `parentId` so salt forms can link to
+  their parent despite overlapping labels.
 
-1. **Genes resolve to HGNC.** Open Targets keys targets on Ensembl; Reactome and the
-   NF-OSI graph key genes on HGNC. Resolving on the way in means one kind of gene node
-   across the repo, and the source id is kept as `biolink:original_object` — the same
-   treatment Reactome gives the UniProt accession. Measured at 26.06: 1,548 of 1,550
-   distinct target ids resolve (99.9%). An Ensembl id mapping to several HGNC ids fans
-   out. Above 10% unresolved the transform fails, matching Reactome's threshold.
-2. **The indication predicate is the weak one.** `treats_or_applied_or_studied_to_treat`,
-   because 87% of rows are below APPROVAL. Using `biolink:treats` would turn every
-   abandoned trial into a therapeutic claim.
-3. **Clinical stage lives on the edge.** `maxClinicalStage` is a maximum over one
-   drug–disease pair's reports, so it is a property of that pair. The molecule-level
-   maximum is emitted under a deliberately *different* name, `maximumClinicalStage`, so
-   the two cannot be confused in a query.
-4. **`targetType` rides on every mechanism edge.** ChEMBL targets are sometimes groups,
-   and the member edges derived from a group are not separately measured interactions.
-   Group edges outnumber single-protein edges roughly two to one, so a consumer that
-   does not filter will over-count.
-5. **Molecule classes are a shallow split.** `Small molecule` → `biolink:SmallMolecule`;
-   the other ten modalities → `biolink:ChemicalEntity`, with `drugType` kept verbatim.
-   Mapping antibodies, gene and cell therapies each onto a Biolink class would assert
-   distinctions this ingest cannot check. `ChemicalEntity` is a loose fit for the 67
-   `Cell` entries and the drugType says so.
-6. **Disease nodes are typed by id prefix.** `clinical_indication` mixes ontologies:
-   8,591 rows point at HP phenotype terms and 430 at MP mouse-phenotype terms, which are
-   not diseases. GO and OBA terms take the union class rather than being forced either
-   way. An unmapped prefix raises: a disease id turned into a guessed IRI would join to
-   nothing and read as absent data.
-7. **Nodes only for referenced terms.** The release describes 47,080 disease terms; the
-   3,749 an indication points at get nodes. The rest are another source's job.
-8. **Labels are the payload.** Every synonym and trade name becomes `skos:altLabel`, so
-   name resolution is queryable, and the same index is exported as TSV for consumers
-   that would rather join a table. `parentMolecule` edges are kept because a salt form
-   and its parent share most labels.
+The two clinical-stage properties have different scopes:
 
-## 6. Duplicates and ambiguity
+| Source column | RDF property | Attached to |
+|---|---|---|
+| `clinical_indication.maxClinicalStage` | `sagebrain:max_clinical_stage` | Drug–disease association |
+| `drug_molecule.maximumClinicalStage` | `sagebrain:overall_clinical_stage` | Molecule |
 
-`drug_mechanism_of_action` keys on a **list** of ChEMBL ids — 6,500 rows cover 5,820
-molecules — and the release additionally contains genuinely duplicate rows (ribociclib's
-CDK4 mechanism appears twice). Rows are fanned out per drug and edges deduplicated on
-the full tuple; 689 duplicates were collapsed at 26.06 and the count is reported rather
-than left to inflate the graph.
+The molecule's stage is copied from the source, not computed from this graph's
+indications. It does not identify a disease and is not ChEMBL's numeric `max_phase`.
 
-Label ambiguity is **recorded, not resolved**. 2,607 folded labels name more than one
-molecule. The exported index gives one row per candidate with `ambiguous=yes`; the RDF
-gives each molecule its own labels. Neither picks a winner, because the right resolution
-depends on the consumer's field.
+## 5. Duplicates and label ambiguity
 
-## 7. Acceptance criteria
+Mechanism rows contain lists of drugs and targets. Expand them, resolve genes,
+then deduplicate by (ChEMBL ID, HGNC ID, action, mechanism text, target type,
+Ensembl ID). Report collapsed duplicates; rows without gene targets are counted
+but produce no association.
 
-Eleven checks: compounds typed and labelled; mechanism edges resolve to typed gene nodes;
-indication edges resolve to typed disease or phenotype nodes; the three controlled
-vocabularies as they appear *in the graph*; genes HGNC-keyed with exactly one taxon;
-release size in range and in agreement with the `void:triples` the loader asserted;
-a set of known facts; that the two clinical-stage slots never land on the same subject;
-and the `sagebrain:` model-term review.
+The label TSV has one row per (case-folded label, molecule), with `ambiguous=yes`
+when a label names multiple molecules. RDF retains each molecule's own labels.
+The ingest never selects a winning candidate; stronger name normalization and
+ambiguity resolution belong to consumers.
 
-The known-facts check is this ingest's equivalent of Reactome's NF1 membership check —
-eight anchors covering the mechanism and indication hops that downstream work depends
-on, including selumetinib and mirdametinib at APPROVAL for plexiform neurofibroma. If
-one disappears, either the release changed something real or this ingest broke, and both
-are worth stopping for.
+## 6. Validation and failures
 
-The model-term review is a warning, never a failure: the model repo and this ingest move
-at different speeds, and so does the network.
+Before transformation, [verify_schemas.py](verify_schemas.py) checks required
+columns, controlled vocabularies and indication ID prefixes. Added columns are
+allowed; missing required columns and unknown values fail. This includes the
+pinned `clinical_report` layout and stage vocabulary even though reports are not
+projected. Integrity failures, unpinned inputs and excessive unresolved target
+lookups also stop the pipeline.
 
-## 8. Failure handling
+[acceptance_checks.py](acceptance_checks.py) runs eleven checks on the loaded graph:
 
-Reject an unverifiable integrity manifest, a digest mismatch, a missing required column,
-an unknown value in any controlled vocabulary, an unmapped disease-id prefix, an
-unpinnable file present in the FTP listing but absent from the manifest, and target
-resolution below the threshold. Keep reports and exports outside `rdf/`, so the loader
-cannot pick them up.
+- Compound typing and labels; typed gene and disease/phenotype objects.
+- Indication stages, action types and target types against their vocabularies.
+- HGNC gene identifiers and taxon cardinality.
+- Release size within `TRIPLE_RANGE`; agreement within 1% with `void:triples`
+  when that metadata is present.
+- Known mechanism and indication facts, including the neurofibroma anchors.
+- Clinical-stage properties on the correct subjects, never both on one subject.
+- Local model-term definitions.
 
-## 9. Graphs and refresh
+Structural failures stop the pipeline. Model-term review only warns, including
+when the model cannot be fetched. Acceptance runs after loading; a failure does
+not undo the load.
 
-Oxigraph stores each release in `urn:sagebrain:opentargets:<release>`. Reloading replaces
-only that graph. VoID lives in the default graph and carries the source URL, the release
-anchor digest, the licence, the citation, the triple count and — as separate
-`rdfs:comment` statements rather than one wall of text — the four caveats a consumer
-cannot recover from the triples.
+## 7. Graphs and refresh
 
-## 10. Open decisions
+Reloading replaces `urn:sagebrain:opentargets:<release>`, retaining other releases.
+The loader reads `molecules.ttl`, `mechanisms.ttl` and `indications.ttl`; keep
+reports and exports outside `rdf/`.
 
-- **`clinical_report` projection.** Pinned and gated; the modelling is not done. Trial
-  stop reasons are the interesting part: of the NF trials with a stated reason, the
-  recurring one is slow accrual rather than toxicity or futility.
-- **Structure-based resolution.** 18,697 molecules carry InChIKey and SMILES. A consumer
-  with structures can resolve without agreeing on a name, which is the only route for the
-  long tail of catalogue compounds whose stereochemistry and salt prefixes ChEMBL spells
-  differently. Not built.
-- **Cross-references.** `crossReferences` (PubChem, DrugBank, …) is read by nothing yet
-  and so is deliberately absent from the layout gate's required columns.
+VoID metadata lives in the default graph: source URL, release anchor, licence,
+citation, triple count and comments explaining stage scope, indication semantics,
+group targets and gene identity.
+
+## 8. Open decisions
+
+- **Structure-based resolution:** InChIKey and SMILES are emitted; a resolver
+  using them is not implemented.
+- **Cross-references:** `crossReferences` (PubChem, DrugBank, etc.) is unused and
+  therefore absent from the required-column gate.

@@ -4,8 +4,9 @@ ChEMBL molecule identity, mechanism-of-action edges to genes, and clinical
 indications with the stage each reached — as RDF, from the Open Targets Platform
 release files.
 
-Target–disease association *scores* are out of scope: they are opinionated
-composites, useful for ranking and wrong to treat as evidence.
+Target–disease association *scores* are outside the current drug-layer scope.
+A future ranking use case could incorporate these composite scores alongside
+the evidence they summarize.
 
 ## Quick start
 
@@ -63,7 +64,8 @@ restore the pinned archive rather than substituting HGNC's mutable latest file.
 | `acceptance_checks` | Eleven checks: node typing, edge resolution, vocabularies, gene keying, size, known facts, stage-slot separation, model terms |
 
 Every module supports `python -m opentargets.<module> --help`.
-See [design decisions](DESIGN.md) and [manifests](manifests/).
+See [design decisions](DESIGN.md), [source dataset notes](datasets/) and
+[manifests](manifests/).
 
 ## What pins a release
 
