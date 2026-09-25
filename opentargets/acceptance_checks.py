@@ -113,6 +113,30 @@ def _distinct(client: GraphClient, graph: str, variable: str, where: str) -> int
     return int(row["n"]["value"]) if row else 0
 
 
+def model_term_iris(client: GraphClient, graph: str) -> list[tuple[str, str]]:
+    """Every IRI in the graph that could be a model term, with its count.
+
+    Both positions such a term can occupy, matching Reactome's equivalent check.
+    Scanning only predicates would leave a class -- ``?s a sagebrain:Foo`` --
+    unreviewed, and that is the one place an undefined term could be emitted
+    forever without appearing in the report whose whole job is to name it. No
+    ``sagebrain:`` class is emitted at 26.06; the point is that one would be
+    caught the run it appeared.
+
+    Returns every IRI, not only ``sagebrain:`` ones -- ``counts_from_iris``
+    applies the namespace filter, and duplicating it here would be a second
+    place for the two to disagree.
+
+    Split out of ``run_checks`` so the query itself is testable: the bug this
+    replaced was invisible in the report, because a check that never looks at a
+    position reports the same PASS whether or not anything is wrong there.
+    """
+    return [(row["term"]["value"], row["n"]["value"]) for row in client.select(
+        PREFIXES + f"""SELECT ?term (COUNT(*) AS ?n) WHERE {{ GRAPH <{graph}> {{
+          {{ ?s ?term ?o }} UNION {{ ?s a ?term }}
+        }} }} GROUP BY ?term""")["results"]["bindings"]]
+
+
 def run_checks(client: GraphClient, graph: str, release: str,
                default_client: GraphClient | None = None) -> list[Check]:
     checks: list[Check] = []
@@ -382,10 +406,8 @@ def run_checks(client: GraphClient, graph: str, release: str,
 
     # 20 -- model terms. A warning: the model repo and this ingest move at
     # different speeds, and so does the network.
-    pairs = [(row["p"]["value"], row["n"]["value"]) for row in client.select(
-        PREFIXES + f"""SELECT ?p (COUNT(*) AS ?n)
-        WHERE {{ GRAPH <{graph}> {{ ?s ?p ?o }} }} GROUP BY ?p""")["results"]["bindings"]]
-    review = model_terms.review(model_terms.counts_from_iris(pairs))
+    review = model_terms.review(model_terms.counts_from_iris(
+        model_term_iris(client, graph)))
     checks.append(Check(20, "Model terms defined in sagebrain-model", review.passed,
                         review.detail, fatal=False, lines=review.lines()))
     return checks
