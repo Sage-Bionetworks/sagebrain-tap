@@ -44,7 +44,7 @@ producing a guessed IRI.
 
 ## What the ingest emits
 
-86,468 `ChemicalToDiseaseOrPhenotypicFeatureAssociation` edges over 11,364 drugs ×
+86,468 `ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation` edges over 11,364 drugs ×
 3,749 diseases, 11,175 of them at APPROVAL. The predicate is
 `biolink:treats_or_applied_or_studied_to_treat`, deliberately weaker than
 `biolink:treats`: 75,293 rows sit below APPROVAL, and a phase-1 trial is a compound

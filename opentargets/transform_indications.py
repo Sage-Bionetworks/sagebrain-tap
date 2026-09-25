@@ -118,7 +118,7 @@ def transform(input_dir: Path, out_path: Path) -> dict:
                     stats["approval_edges"] += 1
 
                 writer.blank_node([
-                    ("a", "biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation"),
+                    ("a", "biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation"),
                     ("biolink:subject", iri(expand(chembl_curie(drug_id)))),
                     ("biolink:object", iri(expand(disease_curie(disease_id)))),
                     ("biolink:predicate",

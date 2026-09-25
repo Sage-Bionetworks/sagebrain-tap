@@ -29,6 +29,8 @@ TURTLE = """
 <https://identifiers.org/chembl:CHEMBL1>
     a sagebrain:MintedClass ;
     sagebrain:drug_type "Small molecule" .
+
+[] biolink:predicate sagebrain:minted_value .
 """
 
 VOID = """
@@ -38,7 +40,7 @@ VOID = """
 
 
 class ModelTermScanTests(unittest.TestCase):
-    """The scan must cover both positions a sagebrain: term can occupy."""
+    """The scan must cover all three positions a model term can occupy."""
 
     @classmethod
     def setUpClass(cls):
@@ -65,9 +67,19 @@ class ModelTermScanTests(unittest.TestCase):
     def test_a_term_in_class_position_is_reviewed(self):
         """The gap this test exists for. Scanning only ?s ?p ?o would leave an
         undefined sagebrain: class emitted forever without ever reaching the
-        report whose job is to name it -- and the report would read PASS."""
+        report whose job is to name it -- and the report would read PASS.
+
+        Counted once, not twice: class position is object position, since `a` is
+        rdf:type, so a query that unions them separately inflates every class."""
         self.assertIn("MintedClass", self.terms())
         self.assertEqual(self.terms()["MintedClass"], 1)
+
+    def test_a_term_in_object_position_is_reviewed(self):
+        """Not hypothetical: biolink:affects and
+        biolink:treats_or_applied_or_studied_to_treat occur in the real graph
+        only as the object of biolink:predicate, so a scan of predicate and
+        class position alone misses them."""
+        self.assertEqual(self.terms()["minted_value"], 1)
 
     def test_terms_from_other_namespaces_are_not_reported(self):
         """biolink: is not ours to mint, so it is not this check's business.

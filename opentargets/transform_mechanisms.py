@@ -122,7 +122,7 @@ def transform(input_dir: Path, out_path: Path, resolver: HgncResolver,
                             edges.add(key)
                             genes[hgnc_id] = resolver.symbol(hgnc_id)
                             writer.blank_node([
-                                ("a", "biolink:ChemicalToGeneAssociation"),
+                                ("a", "biolink:ChemicalAffectsGeneAssociation"),
                                 ("biolink:subject",
                                  iri(expand(chembl_curie(chembl_id)))),
                                 ("biolink:object", iri(expand(hgnc_curie(hgnc_id)))),

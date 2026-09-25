@@ -116,24 +116,34 @@ def _distinct(client: GraphClient, graph: str, variable: str, where: str) -> int
 def model_term_iris(client: GraphClient, graph: str) -> list[tuple[str, str]]:
     """Every IRI in the graph that could be a model term, with its count.
 
-    Both positions such a term can occupy, matching Reactome's equivalent check.
-    Scanning only predicates would leave a class -- ``?s a sagebrain:Foo`` --
-    unreviewed, and that is the one place an undefined term could be emitted
-    forever without appearing in the report whose whole job is to name it. No
-    ``sagebrain:`` class is emitted at 26.06; the point is that one would be
-    caught the run it appeared.
+    Predicate position and object position, which between them cover every place
+    a term can appear -- including class position, because ``a`` is ``rdf:type``
+    and a class is therefore the OBJECT of an ordinary triple. Writing the three
+    out separately (as Reactome does for the first two) double-counts every
+    class, since ``?s a ?term`` is a strict subset of ``?s ?p ?term``.
 
-    Returns every IRI, not only ``sagebrain:`` ones -- ``counts_from_iris``
-    applies the namespace filter, and duplicating it here would be a second
-    place for the two to disagree.
+    Predicate-only was the original bug. Object position matters concretely
+    rather than hypothetically: ``biolink:affects`` and
+    ``biolink:treats_or_applied_or_studied_to_treat`` appear in this graph ONLY
+    as the object of ``biolink:predicate``, so any scan short of this misses
+    them. Reactome's equivalent still does.
 
-    Split out of ``run_checks`` so the query itself is testable: the bug this
-    replaced was invisible in the report, because a check that never looks at a
-    position reports the same PASS whether or not anything is wrong there.
+    A check that never looks at a position reports the same PASS whether or not
+    anything is wrong there, which is why this is deliberately wider than what
+    today's output happens to need.
+
+    Returns every IRI, not only ``sagebrain:`` ones -- the caller's
+    ``counts_from_iris`` applies the namespace filter, and duplicating it here
+    would be a second place for the two to disagree. That also makes the scan
+    reusable for the ``biolink:`` side, which carries the opposite verdict:
+    Biolink is published on a pinned version, so a term it does not define is
+    wrong now rather than pending ratification.
+
+    Split out of ``run_checks`` so the query itself is testable.
     """
     return [(row["term"]["value"], row["n"]["value"]) for row in client.select(
         PREFIXES + f"""SELECT ?term (COUNT(*) AS ?n) WHERE {{ GRAPH <{graph}> {{
-          {{ ?s ?term ?o }} UNION {{ ?s a ?term }}
+          {{ ?s ?term ?o }} UNION {{ ?s ?p ?term }}
         }} }} GROUP BY ?term""")["results"]["bindings"]]
 
 
@@ -153,20 +163,20 @@ def run_checks(client: GraphClient, graph: str, release: str,
 
     # 2 -- no mechanism edge points at a gene the ingest did not assert as a node.
     dangling = _count(client, graph, """
-        ?a a biolink:ChemicalToGeneAssociation ; biolink:object ?g .
+        ?a a biolink:ChemicalAffectsGeneAssociation ; biolink:object ?g .
         FILTER NOT EXISTS { ?g a biolink:Gene }""")
-    edges = _count(client, graph, "?a a biolink:ChemicalToGeneAssociation")
+    edges = _count(client, graph, "?a a biolink:ChemicalAffectsGeneAssociation")
     checks.append(Check(2, "Mechanism edges resolve to gene nodes", dangling == 0,
                         f"{edges:,} mechanism edges, {dangling} with no typed gene node"))
 
     # 3 -- same for the disease side.
     dangling_disease = _count(client, graph, """
-        ?a a biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation ; biolink:object ?d .
+        ?a a biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation ; biolink:object ?d .
         FILTER NOT EXISTS {
           { ?d a biolink:Disease } UNION { ?d a biolink:PhenotypicFeature }
           UNION { ?d a biolink:DiseaseOrPhenotypicFeature } }""")
     indications = _count(
-        client, graph, "?a a biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation")
+        client, graph, "?a a biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation")
     checks.append(Check(3, "Indication edges resolve to disease/phenotype nodes",
                         dangling_disease == 0,
                         f"{indications:,} indication edges, {dangling_disease} with no "
@@ -226,7 +236,7 @@ def run_checks(client: GraphClient, graph: str, release: str,
     for label, symbol, disease, stage in DEMO_ANCHORS:
         found = _count(client, graph, f"""
             ?c skos:altLabel|rdfs:label ?l . FILTER(LCASE(STR(?l)) = "{label}")
-            ?m a biolink:ChemicalToGeneAssociation ;
+            ?m a biolink:ChemicalAffectsGeneAssociation ;
                biolink:subject ?c ; biolink:object ?g .
             ?g rdfs:label "{symbol}" .""")
         if not found:
@@ -252,7 +262,7 @@ def run_checks(client: GraphClient, graph: str, release: str,
     # answer rather than an obvious one.
     STAGE_SLOTS = (
         ("sagebrain:max_clinical_stage", "an indication edge",
-         "?s a biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation"),
+         "?s a biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation"),
         ("sagebrain:overall_clinical_stage", "a compound", "?s sagebrain:drug_type ?d"),
         ("sagebrain:trial_clinical_stage", "a trial", "?s a biolink:ClinicalTrial"),
     )

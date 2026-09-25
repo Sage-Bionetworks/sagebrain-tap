@@ -47,7 +47,7 @@ asserts group membership, not an independently measured interaction.
 
 ## What the ingest emits
 
-14,708 `ChemicalToGeneAssociation` edges over 1,548 HGNC gene nodes. Group-membership
+14,708 `ChemicalAffectsGeneAssociation` edges over 1,548 HGNC gene nodes. Group-membership
 edges outnumber single-protein edges **9,506 to 5,202**, so any count of "drug–target
 interactions" has to filter on `sagebrain:target_type` or it inflates by ~1.8×.
 

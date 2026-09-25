@@ -143,8 +143,13 @@ does not gate ingestion. See the [26.06 packaging failure](README.md#a-trap-wort
 
 ## 3. Target model
 
-Biolink supplies classes and predicates; [schema/opentargets.yaml](../schema/opentargets.yaml)
-defines the model. Namespace bases are in [shared/rdf.py](../shared/rdf.py) and
+Biolink supplies classes and predicates, and every `biolink:` term emitted must
+be defined in the pinned release — it is a published vocabulary, not ours to
+mint, so an undefined term is a typo or a term that moved and the graph is wrong
+now. That is the opposite verdict from a `sagebrain:` term, which only warns.
+Two association classes were carried for several releases under names Biolink
+never had; see the note in the schema.
+[schema/opentargets.yaml](../schema/opentargets.yaml) defines the model. Namespace bases are in [shared/rdf.py](../shared/rdf.py) and
 [common.py](common.py). `sagebrain:` is the only local namespace; acceptance
 check 18 reports terms not yet defined in sagebrain-model.
 
@@ -164,7 +169,7 @@ CHEMBL:CHEMBL2103875
 
 HGNC:6840  a biolink:Gene ; rdfs:label "MAP2K1" ; biolink:in_taxon NCBITaxon:9606 .
 
-[] a biolink:ChemicalToGeneAssociation ;
+[] a biolink:ChemicalAffectsGeneAssociation ;
    biolink:subject CHEMBL:CHEMBL2103875 ;
    biolink:object HGNC:6840 ;
    biolink:predicate biolink:affects ;
@@ -174,7 +179,7 @@ HGNC:6840  a biolink:Gene ; rdfs:label "MAP2K1" ; biolink:in_taxon NCBITaxon:960
    biolink:original_object "ENSEMBL:ENSG00000169032" ;
    biolink:primary_knowledge_source infores:open-targets .
 
-[] a biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation ;
+[] a biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation ;
    biolink:subject CHEMBL:CHEMBL1614701 ;
    biolink:object EFO:EFO_0000658 ;
    biolink:predicate biolink:treats_or_applied_or_studied_to_treat ;

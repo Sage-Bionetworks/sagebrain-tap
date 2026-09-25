@@ -53,16 +53,29 @@ prefixes:
 imports:
   - linkml:types
 
-# Pinned Biolink version, matching the Reactome ingest. biolink:SmallMolecule,
-# biolink:ChemicalEntity, biolink:ChemicalToGeneAssociation,
-# biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation, biolink:affects,
-# biolink:treats_or_applied_or_studied_to_treat, biolink:original_object,
-# biolink:primary_knowledge_source, biolink:ClinicalTrial,
-# biolink:clinical_trial_conditions and biolink:clinical_trial_overall_status
-# were all verified present in this release before the slots below were finalised.
-# The last is the strongest fit in the schema: its range ClinicalTrialStatusEnum
-# is value-for-value identical to the 13 statuses Open Targets uses, checked in
-# both directions against the pinned release.
+# Pinned Biolink version, matching the Reactome ingest. Every biolink: term this
+# ingest emits must be defined in THIS release -- Biolink is a published
+# vocabulary, not ours to mint, so a term it does not define is a typo or a term
+# that moved, and the graph is wrong now rather than pending ratification. That
+# is the opposite verdict from sagebrain: terms, which only warn.
+#
+# This comment used to assert the terms had been "verified present" and was
+# wrong: two association classes here never existed in any Biolink release.
+# biolink:ChemicalToGeneAssociation and
+# biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation were plausible-looking
+# names that 101,176 associations carried, and nothing checked them, because a
+# class name only has to parse to load. They are now
+# biolink:ChemicalAffectsGeneAssociation and
+# biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation, both
+# chosen on their declared predicate constraint rather than on spelling -- see
+# the two association classes below.
+#
+# So: assert nothing here that a tool does not check. The term set is verified
+# against the tagged release named by biolink_version, not against this comment.
+#
+# biolink:clinical_trial_overall_status is the strongest fit in the schema: its
+# range ClinicalTrialStatusEnum is value-for-value identical to the 13 statuses
+# Open Targets uses, checked in both directions against the pinned release.
 #
 # Three Biolink slots for clinical trials were checked and NOT used, each for a
 # stated reason rather than by omission:
@@ -799,10 +812,20 @@ classes:
           matching free-text disease names needs both.
 
   CompoundToGeneAssociation:
-    class_uri: biolink:ChemicalToGeneAssociation
+    class_uri: biolink:ChemicalAffectsGeneAssociation
     description: >-
       Reified mechanism-of-action association, mirroring the association pattern
       used elsewhere in the graph.
+
+      The class was biolink:ChemicalToGeneAssociation, which does not exist in
+      Biolink and never has. Chosen now on the declared constraint rather than on
+      the name: this class fixes predicate to a subproperty of biolink:affects,
+      which is exactly what these edges carry, and its inherited ranges are
+      `chemical entity` for the subject and `biological entity` for the object,
+      which Compound and Gene satisfy. Its qualifier slots -- object aspect,
+      causal mechanism, qualified predicate -- are all optional, so the action
+      type staying in sagebrain:action_type remains a choice rather than a gap
+      (see ActionTypeEnum for why it is not mapped onto those qualifiers).
 
       One source row can name MANY drugs -- 6,500 rows cover 5,820 molecules -- so
       rows are fanned out per drug. The release also contains genuinely duplicate
@@ -842,10 +865,24 @@ classes:
         equals_string: "infores:open-targets"
 
   CompoundToDiseaseAssociation:
-    class_uri: biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation
+    class_uri: biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation
     description: >-
       Reified clinical-indication association: this compound has been studied for,
       or approved for, this disease, reaching this stage.
+
+      The class was biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation, which
+      does not exist in Biolink. The nearest name that does is
+      ChemicalEntityToDiseaseOrPhenotypicFeatureAssociation, and it is the WRONG
+      class: it describes an interaction "where the presence of the chemical gives
+      rise to or exacerbates the phenotype" -- the harm direction, the opposite of
+      an indication. Taking the closest spelling would have replaced a name that
+      joined to nothing with one that asserted something false, which is worse.
+
+      This class instead fixes predicate to a subproperty of
+      `treats or applied or studied to treat`, which is exactly the predicate
+      these edges carry, and is described as covering a chemical or treatment
+      "used to treat, or is being studied to treat" a condition -- the deliberately
+      weak reading this layer needs, for the reason set out under predicate below.
     slots:
       - subject
       - object
