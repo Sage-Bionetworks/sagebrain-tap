@@ -2,34 +2,21 @@ id: https://w3id.org/sagebrain/opentargets
 name: sagebrain-opentargets
 title: SageBrain Open Targets Drug-Layer Ingest
 description: >-
-  LinkML definitions for the Open Targets Platform drug layer: ChEMBL compound
-  nodes with their name/synonym/trade-name index, HGNC gene nodes, disease and
-  phenotype nodes, the two reified associations that join them -- mechanism of
-  action and clinical indication -- and the clinical trials behind those
-  indications.
+  Schema for the Open Targets Platform drug layer, covering ChEMBL compounds, HGNC
+  genes, diseases and phenotypes, mechanism and indication associations, and clinical
+  trials.
 
-  Scope is the drug axis. Target-disease association SCORES are deliberately
-  absent: they are opinionated composites over heterogeneous evidence, useful for
-  ranking and wrong to treat as evidence, and a graph that carries them invites
-  the misuse where a number is quoted without what produced it.
-
-  clinical_report holds four kinds of record and only one of them is projected.
-  Trials become nodes; curated resources, drug labels and regulatory records stay
-  out, because none of them has an identifier that survives a release -- trial
-  ids are uniformly nct<digits>, while the rest mix DailyMed UUIDs, sha256 hashes
-  and raw strings such as 019909s020lbl.pdf. Indication edges keep their report
-  COUNT as well, since that count is over all four kinds and the trial nodes are
-  only one of them.
+  Target-disease association scores are outside the current scope. Only clinical trial
+  records are projected from clinical_report; indication report counts include all
+  source record types.
 
 license: https://creativecommons.org/publicdomain/zero/1.0/
 default_prefix: sagebrain
 default_range: string
 
 prefixes:
-  # One model namespace, owned by ontology/main/sagebrain.ttl in the
-  # sagebrain-model repo. A term this ingest needs before the model has ratified
-  # it is minted here anyway and reported by acceptance check 22.
-  # See shared/rdf.py NAMESPACES and opentargets/common.py PREFIXES.
+  # Local terms share the sagebrain-model namespace. Acceptance checks report
+  # terms that have not yet been defined in the published model.
   sagebrain: https://w3id.org/synapse/sagebrain#
   linkml: https://w3id.org/linkml/
   biolink: https://w3id.org/biolink/vocab/
@@ -53,39 +40,8 @@ prefixes:
 imports:
   - linkml:types
 
-# Pinned Biolink version, matching the Reactome ingest. Every biolink: term this
-# ingest emits must be defined in THIS release -- Biolink is a published
-# vocabulary, not ours to mint, so a term it does not define is a typo or a term
-# that moved, and the graph is wrong now rather than pending ratification. That
-# is the opposite verdict from sagebrain: terms, which only warn.
-#
-# This comment used to assert the terms had been "verified present" and was
-# wrong: two association classes here never existed in any Biolink release.
-# biolink:ChemicalToGeneAssociation and
-# biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation were plausible-looking
-# names that 101,176 associations carried, and nothing checked them, because a
-# class name only has to parse to load. They are now
-# biolink:ChemicalAffectsGeneAssociation and
-# biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation, both
-# chosen on their declared predicate constraint rather than on spelling -- see
-# the two association classes below.
-#
-# So: assert nothing here that a tool does not check. The term set is verified
-# against the tagged release named by biolink_version, not against this comment.
-#
-# biolink:clinical_trial_overall_status is the strongest fit in the schema: its
-# range ClinicalTrialStatusEnum is value-for-value identical to the 13 statuses
-# Open Targets uses, checked in both directions against the pinned release.
-#
-# Three Biolink slots for clinical trials were checked and NOT used, each for a
-# stated reason rather than by omission:
-#   * clinical_trial_interventions -- range is `clinical intervention`, and these
-#     compounds are ChemicalEntity. See trial_drug.
-#   * clinical_trial_phase -- range is ResearchPhaseEnum, a different vocabulary
-#     from Open Targets' clinicalStage, which also carries APPROVAL and UNKNOWN.
-#     See trial_clinical_stage.
-#   * clinical_trial_start_date -- range is string, which cannot carry the
-#     month-precision claim the datatype makes. See trial_start_date.
+# Acceptance checks validate emitted Biolink terms against this pinned release.
+# Undefined local terms are reported for review in sagebrain-model.
 settings:
   biolink_version: 4.4.4
   opentargets_release: "26.06"
@@ -96,34 +52,18 @@ enums:
 
   ClinicalStageEnum:
     description: >-
-      The stage vocabulary Open Targets uses, complete as observed at release
-      26.06 and enforced -- a value outside this set is a hard error at transform
-      time, never a default and never dropped.
+      Clinical stages used by Open Targets. Unknown vocabulary values fail validation.
+      The vocabulary is shared by molecule, indication, and trial stage properties, each
+      with a distinct scope.
 
-      Two of these values appear only in clinical_report: PHASE_4 (30,509 rows) and
-      WITHDRAWAL (866). Neither reaches a trial node at 26.06 -- the in-scope trials
-      use nine of the thirteen values, PHASE_4 being the notable one at 28,465 --
-      so the set is wider than any single slot's observed range by design.
-
-      Three slots carry values from this enum and they are NOT interchangeable:
-      max_clinical_stage scopes to a drug-disease pair, overall_clinical_stage to a
-      molecule, and trial_clinical_stage to one trial. Acceptance check 11 fails if
-      any subject carries more than one of them.
-
-      CLINICAL_STAGE_ORDER in opentargets/common.py orders the development axis so
-      "highest stage reached" is expressible without a consumer hardcoding it.
-      UNKNOWN sorts FIRST and is not an early phase -- it means no phase was
-      recorded. PHASE_4 sorts above APPROVAL, because phase-4 studies are
-      post-marketing.
-
-      WITHDRAWAL is deliberately absent from that ordering. It is a terminal
-      outcome, not a rung: a withdrawn drug reached approval and was then pulled, so
-      ranking it above APPROVAL reads as further progress and ranking it at the
-      bottom reads as never developed. `stage_rank` refuses it rather than choosing
-      a wrong answer quietly.
+      CLINICAL_STAGE_ORDER in opentargets/common.py defines the development-stage
+      ordering. UNKNOWN denotes an unrecorded stage and sorts first; PHASE_4 denotes
+      post-marketing studies and sorts after APPROVAL. WITHDRAWAL is an outcome and has
+      no development-stage rank.
     permissible_values:
       UNKNOWN:
-        description: No phase recorded by the source. Not an early phase.
+        description: >-
+          No clinical stage recorded by the source.
       PRECLINICAL:
       IND:
         description: Investigational New Drug application.
@@ -136,42 +76,35 @@ enums:
       PREAPPROVAL:
       APPROVAL:
         description: >-
-          Approved for the indication on the edge carrying this value, in some
-          jurisdiction, for some population. Not a statement that the drug is
-          appropriate for any given patient, and not treatment guidance.
+          Approval recorded by the source. Interpret this value in the scope of the
+          property carrying it; a molecule-level value does not identify an approved
+          indication, jurisdiction, or population.
       PHASE_4:
         description: >-
-          Post-marketing study. Implies approval, and is collapsed into APPROVAL at
-          the compound level by the source. Only clinical_report uses it, so it
-          reaches the graph on trial_clinical_stage and nowhere else -- 28,465 of
-          the 193,469 trial nodes.
+          Post-marketing study stage. Retained on trial nodes; the source represents
+          this stage as APPROVAL at the molecule level.
       WITHDRAWAL:
         description: >-
-          Withdrawn. A terminal outcome, not a development stage -- see the note
-          above on why it carries no rank. Only clinical_report uses it, and only on
-          records outside the trial layer's scope, so no slot carries it at 26.06.
+          Withdrawal after approval. This outcome is excluded from the development-stage
+          ordering and occurs outside the projected trial scope in the pinned release.
 
   TargetTypeEnum:
     description: >-
-      ChEMBL's target type, complete at 26.06. This is the most misuse-prone value
-      in the schema and it rides on every mechanism edge for that reason.
+      ChEMBL target classification, retained on every mechanism association. Single
+      protein, chimeric protein, and nucleic-acid denote individual targets. Other
+      values denote groups whose members are emitted as separate association objects.
 
-      For single protein, chimeric protein and nucleic-acid, the source's target
-      is ONE entity and the edge is a drug-to-target pair. For every other value
-      the target is a named GROUP -- a family, a complex, a selectivity class --
-      and the ingest emits one edge per member, all derived from a single claim
-      about the group. Trametinib's "MEK1/2 inhibitor" row becomes an edge to
-      MAP2K1 and an edge to MAP2K2; neither is a separately measured interaction.
-
-      At 26.06 group edges outnumber single-entity edges 9,506 to 5,202, so a
-      query that counts drug-target pairs without filtering on this slot
-      over-counts by roughly two thirds.
+      Associations derived from a group claim do not establish independently measured
+      interactions with each member. Filter by target_type when counting individual
+      drug-target interactions.
     permissible_values:
       "single protein":
       "chimeric protein":
       "nucleic-acid":
       "protein family":
-        description: Members enumerated; the claim is about the family.
+        description: >-
+          A protein family whose members are listed as targets of the same mechanism
+          claim.
       "protein complex":
       "protein complex group":
       "protein nucleic-acid complex":
@@ -180,13 +113,9 @@ enums:
 
   ActionTypeEnum:
     description: >-
-      ChEMBL's mechanism action type, all 30 values observed at 26.06.
-
-      Carried as a value rather than mapped onto Biolink predicates: OPENER,
-      STABILISER and SUBSTRATE have no faithful Biolink predicate, and inventing
-      one would assert a direction of effect the source does not state. The
-      association predicate is therefore the neutral biolink:affects, with the
-      direction of effect recorded here.
+      ChEMBL mechanism action types. Values are retained alongside biolink:affects
+      because the source vocabulary does not map consistently to more specific Biolink
+      predicates.
     permissible_values:
       ACTIVATOR:
       AGONIST:
@@ -203,7 +132,8 @@ enums:
       "GENE EDITING NEGATIVE MODULATOR":
       "HYDROLYTIC ENZYME":
       INHIBITOR:
-        description: The majority value at 26.06 (3,379 of 6,500 mechanism rows).
+        description: >-
+          An inhibitory action on the target.
       "INVERSE AGONIST":
       MODULATOR:
       "NEGATIVE ALLOSTERIC MODULATOR":
@@ -222,19 +152,18 @@ enums:
 
   DrugTypeEnum:
     description: >-
-      The modality Open Targets records, all 11 values at 26.06. Kept verbatim on
-      every compound because the Biolink class assigned is a deliberately shallow
-      split (see the Compound class) and this slot is what lets a consumer refine
-      on the source's own word rather than on the ingest's guess.
+      Compound modalities as recorded by Open Targets. Values retain distinctions beyond
+      the broad Biolink classes assigned by this ingest.
     permissible_values:
       "Small molecule":
-        description: 18,124 of 22,407 molecules at 26.06; the only value with a narrow Biolink class.
+        description: >-
+          A small molecule, typed as biolink:SmallMolecule.
       Antibody:
       "Antibody drug conjugate":
       Cell:
         description: >-
-          A cell therapy. biolink:ChemicalEntity is a loose fit for these 67
-          entries; this slot is how a consumer can tell.
+          A cell therapy. Retained explicitly because the broad biolink:ChemicalEntity
+          class does not describe this modality precisely.
       Enzyme:
       Gene:
       Oligonucleotide:
@@ -245,120 +174,112 @@ enums:
 
   ReportTypeEnum:
     description: >-
-      The four kinds of record in clinical_report, all observed at 26.06. Not
-      emitted -- this enum is the scope filter, recorded so the filter is a
-      declared vocabulary rather than a bare string comparison buried in a
-      transform. A renamed or added kind fails the layout gate.
-
-      Only CLINICAL_TRIAL is projected. The decision is about identity, not about
-      value: trial ids are uniformly nct<digits> with no exceptions, while the
-      other three kinds mix DailyMed UUIDs, sha256 hashes and raw strings used as
-      keys (019909s020lbl.pdf, a01ab02, and one row whose id is a bare FDA URL).
-      A node keyed on any of those would not be the same node next release.
+      Record types in clinical_report, used to validate the trial scope filter. Only
+      CLINICAL_TRIAL records are projected as nodes. Other record types use
+      heterogeneous identifiers for which this ingest has no stable identity mapping
+      across releases.
     permissible_values:
       CLINICAL_TRIAL:
-        description: 230,990 rows at 26.06, all sourced from AACT. The only kind projected.
+        description: >-
+          Clinical trial records sourced from AACT and eligible for projection as trial
+          nodes.
       CURATED_RESOURCE:
-        description: 38,125 rows from TTD, ATC, USAN, INN, WHO and DOI.
+        description: >-
+          Records from curated resources, including TTD, ATC, USAN, INN, WHO, and DOI.
       DRUG_LABEL:
-        description: 16,029 rows from DailyMed and FDA.
+        description: >-
+          Drug label records from DailyMed and FDA.
       REGULATORY_AGENCY:
-        description: 4,811 rows from PMDA, EMA, FDA, Health Canada and MHRA.
+        description: >-
+          Regulatory records from PMDA, EMA, FDA, Health Canada, and MHRA.
 
   TrialStopReasonCategoryEnum:
     description: >-
-      Open Targets' classification of trialWhyStopped free text, all 13 values at
-      26.06. Multivalued: a trial can carry up to three.
+      Open Targets classifications of the trialWhyStopped text. A trial may carry
+      multiple categories, preserving information about why it stopped that a maximum
+      clinical stage cannot express.
 
-      This is the trial history that a maximum clinical stage cannot preserve. An
-      indication edge reading PHASE_3 cannot say the phase-3 trial was halted for
-      futility, and that distinction is the reason the trial layer exists. 21,876
-      in-scope trials carry a stop reason, and the pairing with the free text is
-      exact in both directions -- no row has text without a category, and none has
-      a category without text.
-
-      Uncategorised, No_Context and Invalid_Reason are the SOURCE's values for
-      "the text did not classify", not this ingest's fallback. Nothing here is a
-      default: an unseen value fails the vocabulary gate like any other.
+      Uncategorised, No_Context, and Invalid_Reason are source values. Unrecognized
+      values fail vocabulary validation.
     permissible_values:
       Insufficient_Enrollment:
-        description: 7,202 in-scope trials, the largest category.
+        description: >-
+          Insufficient participant enrollment.
       Business_Administrative:
       Negative:
-        description: Stopped on results -- futility, or an interim analysis that read against the drug.
+        description: >-
+          Negative study results or futility.
       Study_Design:
       Logistics_Resources:
       Invalid_Reason:
         description: The stated reason was not a stop reason.
       Another_Study:
       Safety_Sideeffects:
-        description: 793 in-scope trials. The category a safety question actually wants.
+        description: >-
+          Safety concerns or side effects.
       Study_Staff_Moved:
       Covid19:
       Regulatory:
       Uncategorised:
-        description: The source could not classify the text. Not a missing value.
+        description: >-
+          The source could not classify the stop-reason text.
       No_Context:
 
   ReportQualityControlEnum:
     description: >-
-      Flags Open Targets raises against a report, all four values at 26.06.
-      Multivalued: a trial can carry up to three, and 88,815 of 193,469 carry at
-      least one.
-
-      All four are emitted, not just the two that matter upstream.
-      PHASE_IV_NOT_APPROVED and INDIRECT_PRIMARY_PURPOSE are what exclude a report
-      from clinical_indication; emitting only those would let a consumer reproduce
-      the release's filter but never relax it, and would read as though the other
-      two flags did not exist.
+      Quality-control flags assigned by Open Targets. All flags are retained on trial
+      nodes. PHASE_IV_NOT_APPROVED and INDIRECT_PRIMARY_PURPOSE exclude reports from the
+      source's clinical_indication dataset; the trial projection does not apply that
+      filter.
     permissible_values:
       UNVALIDATED_INDICATION:
-        description: 44,204 in-scope trials. Does not gate clinical_indication.
+        description: >-
+          Source flag for an unvalidated indication; does not exclude the report from
+          clinical_indication.
       INDIRECT_PRIMARY_PURPOSE:
-        description: 42,616 in-scope trials. Gates clinical_indication.
+        description: >-
+          Source flag for an indirect primary purpose; excludes the report from
+          clinical_indication.
       NO_DISEASE:
-        description: 15,272 in-scope trials. Does not gate clinical_indication.
+        description: >-
+          Source flag for a missing disease; does not exclude the report from
+          clinical_indication.
       PHASE_IV_NOT_APPROVED:
-        description: 13,640 in-scope trials. Gates clinical_indication.
+        description: >-
+          Source flag for a post-marketing study without recorded approval; excludes the
+          report from clinical_indication.
 
   ClinicalTrialStatusEnum:
     description: >-
-      The trial's overall recruitment or availability state, all 13 values at
-      26.06. Exactly one per trial: the column is 100% filled on CLINICAL_TRIAL
-      rows and empty on every other record kind.
+      The trial's overall recruitment or availability status. The source vocabulary
+      matches Biolink's ClinicalTrialStatusEnum in the pinned release.
 
-      These 13 are value-for-value identical to Biolink's own
-      ClinicalTrialStatusEnum in the pinned 4.4.4 release -- nothing in one that is
-      missing from the other -- which is why the status rides on a Biolink slot
-      while the stage and start date take local ones.
-
-      Status is what makes a stop reason interpretable. All 21,876 stop reasons in
-      the release sit on TERMINATED (15,460), WITHDRAWN (5,934) or SUSPENDED (482),
-      and "Negative" means something different on a trial that halted midway than
-      on one that never enrolled a participant. Acceptance check 20 enforces that
-      pairing rather than trusting it.
-
-      Note the overlap in spelling with ClinicalStageEnum: WITHDRAWN here is a
-      trial that never started, while WITHDRAWAL there is a drug pulled after
-      approval. Different columns, different subjects, unrelated facts.
+      Status provides context for a stop reason: TERMINATED denotes an early end,
+      WITHDRAWN denotes a trial stopped before enrollment, and SUSPENDED denotes a
+      temporary halt. WITHDRAWN is distinct from the drug-level WITHDRAWAL outcome in
+      ClinicalStageEnum.
     permissible_values:
       COMPLETED:
-        description: 113,351 in-scope trials. Ended normally.
+        description: >-
+          The trial ended normally.
       UNKNOWN:
-        description: 23,351 in-scope trials. The registry has no current status, not a phase claim.
+        description: >-
+          The registry has no current trial status.
       TERMINATED:
-        description: 17,492 in-scope trials. Stopped prematurely and will not restart.
+        description: >-
+          The trial stopped prematurely and will not resume.
       RECRUITING:
       ACTIVE_NOT_RECRUITING:
       WITHDRAWN:
-        description: 7,032 in-scope trials. Halted before enrolling its first participant.
+        description: >-
+          The trial stopped before enrolling a participant.
       NOT_YET_RECRUITING:
         description: >-
-          6,238 in-scope trials. Why most future start dates are real: 121 of the
-          150 trials starting 2027-2030 hold this status.
+          The trial has not begun recruiting participants.
       ENROLLING_BY_INVITATION:
       SUSPENDED:
-        description: Temporarily halted, may resume. The third status that can carry a stop reason.
+        description: >-
+          The trial is temporarily halted and may resume.
       NO_LONGER_AVAILABLE:
       APPROVED_FOR_MARKETING:
       AVAILABLE:
@@ -366,8 +287,8 @@ enums:
 
   TaxonEnum:
     description: >-
-      In-scope taxa for gene nodes. Human only: Open Targets mechanism targets are
-      human Ensembl gene ids.
+      Taxa represented by gene nodes. Mechanism targets in the current scope are human
+      genes.
     permissible_values:
       "NCBITaxon:9606":
         title: Homo sapiens
@@ -389,32 +310,19 @@ slots:
     slot_uri: skos:altLabel
     multivalued: true
     description: >-
-      Every synonym and trade name the release gives a compound. This is the
-      layer's payload, not decoration: 22,407 molecules carry 101,195
-      (label, molecule) pairs, and that index is what lets SELUMETINIB and
-      AZD-6244 resolve to the same CHEMBL1614701 -- something no amount of string
-      matching between two local datasets can do.
+      Alternative labels supplied by the source. Compound labels include synonyms and
+      trade names; disease and phenotype labels use exact synonyms.
 
-      Ambiguity is preserved rather than resolved. 2,607 case-folded labels name
-      more than one molecule, so a lookup can return several candidates; each
-      molecule carries only its own labels and the exported TSV flags the fork.
-      Collapsing them would turn an unresolvable string into a confident wrong
-      answer.
-
-      Three synonyms are dropped rather than emitted, for the same reason in
-      reverse: they carry a NUL where the source meant a registered-trademark
-      sign, and stripping the byte fuses two fragments into a word no source
-      wrote ("verorab\x00ae" -> "verorabae"). See labels_of in
-      transform_molecules.py; they are listed in reports/rejected_labels.tsv.
+      Labels may identify multiple entities. The compound label export records this
+      ambiguity for downstream resolution. Compound labels containing control characters
+      are excluded from the label index and recorded in reports/rejected_labels.tsv.
 
   in_taxon:
     slot_uri: biolink:in_taxon
     range: TaxonEnum
     required: true
     description: >-
-      Emitted on every gene node even though it is constant under current scope,
-      for the same reason as the Reactome ingest: it makes scope explicit in the
-      data rather than only in prose.
+      The organism to which the gene belongs, emitted explicitly on each gene node.
 
   drug_type:
     slot_uri: sagebrain:drug_type
@@ -425,55 +333,30 @@ slots:
   inchi_key:
     slot_uri: sagebrain:inchi_key
     description: >-
-      InChIKey, present on 18,697 of 22,407 molecules along with canonical SMILES.
-      Structure keys matter for the long tail of catalogue compounds whose
-      stereochemistry and salt prefixes ChEMBL spells differently from everyone
-      else: a key derived from structure resolves without either side agreeing on
-      a name.
+      The source InChIKey, supporting compound matching by chemical structure.
 
   canonical_smiles:
     slot_uri: sagebrain:canonical_smiles
-    description: Canonical SMILES, present on exactly the molecules that carry an InChIKey.
+    description: >-
+      The source canonical SMILES representation, when available.
 
   overall_clinical_stage:
     slot_uri: sagebrain:overall_clinical_stage
     range: ClinicalStageEnum
     description: >-
-      The compound's own highest clinical stage, from the source's
-      maximumClinicalStage column. A property of the compound, not of any
-      indication.
+      The compound's highest clinical stage as supplied in maximumClinicalStage. This
+      molecule-level value does not identify a disease or an approved indication.
 
-      It is NOT ChEMBL's max_phase, despite the resemblance. ChEMBL's max_phase is
-      numeric (0, 0.5, 1, 2, 3, 4); this column carries Open Targets' own 11-value
-      stage vocabulary, and 879 compounds hold values max_phase cannot express --
-      PHASE_1_2, PHASE_2_3, EARLY_PHASE_1, IND, PREAPPROVAL. Naming the slot
-      max_phase would assert a provenance the data contradicts.
-
-      Measured, it is Open Targets' rollup over clinical_report stages with PHASE_4
-      collapsed into APPROVAL: of the 12,631 compounds a report names, 9,786 equal
-      the report-derived maximum exactly and a further 2,832 are the PHASE_4 case,
-      accounting for 12,618 of 12,631 (99.9%). Thirteen genuinely differ.
-
-      It is also NOT derivable from this graph's indication edges, which is why it
-      is ingested rather than computed. Of the 11,363 compounds carrying an
-      indication edge, 875 hold a HIGHER value than their edges imply (335 of them
-      APPROVAL against a derived PHASE_3), and 1,276 compounds carry a non-UNKNOWN
-      stage with no indication edge at all -- 391 at APPROVAL. Deriving the slot
-      would drop 391 approved drugs and understate 875 more.
-
-      What it cannot tell you is WHICH disease, so it must never be read as an
-      indication-level fact. Named overall_ rather than max_ because the earlier
-      name differed from max_clinical_stage by four characters, which is not enough
-      separation between two slots whose confusion yields a plausible wrong answer.
+      The value uses the Open Targets stage vocabulary, distinct from ChEMBL's numeric
+      max_phase. It is copied from the source and cannot be derived reliably from this
+      graph's indication associations.
   parent_molecule:
     slot_uri: sagebrain:parent_molecule
     range: Compound
     description: >-
-      The parent of a salt or mixture form, from the source's parentId. Kept
-      because a salt and its parent share most of their labels, so a consumer that
-      resolved a string to the salt can climb rather than treat the two as
-      unrelated compounds -- SELUMETINIB SULFATE and SELUMETINIB both carry their
-      own approval edges at 26.06.
+      The parent molecule of a salt or mixture form, from parentId. The reference is
+      retained even when the parent has no descriptive record in the source molecule
+      dataset.
 
   subject:
     slot_uri: biolink:subject
@@ -499,181 +382,116 @@ slots:
     slot_uri: sagebrain:action_type
     range: ActionTypeEnum
     required: true
-    description: Direction of effect, carried here because the predicate is neutral.
+    description: >-
+      The mechanism action recorded by the source, complementing the general
+      biolink:affects predicate.
 
   mechanism_of_action:
     slot_uri: sagebrain:mechanism_of_action
     description: >-
-      The source's free-text mechanism description, e.g. "Dual specificity
-      mitogen-activated protein kinase kinase 1 inhibitor". Kept verbatim: it is
-      the only place the group-level claim is stated in the source's own words,
-      which is what makes a family-level edge interpretable.
+      The source mechanism description. For group targets, this text describes the
+      shared mechanism claim represented by the member associations.
 
   target_type:
     slot_uri: sagebrain:target_type
     range: TargetTypeEnum
     required: true
     description: >-
-      What the edge claims. Required on every mechanism edge -- see
-      TargetTypeEnum; omitting it is how a consumer over-counts drug-target pairs.
+      The source target classification, used to distinguish individual targets from
+      members of a target group. See TargetTypeEnum.
 
   target_name:
     slot_uri: sagebrain:target_name
     description: >-
-      The source's name for the target, which for a group is the group's name
-      ("Dual specificity mitogen-activated protein kinase kinase; MEK1/2") rather
-      than the member this edge points at.
+      The source target name. For group targets, this names the group rather than the
+      individual gene referenced by the association.
 
   original_object:
     slot_uri: biolink:original_object
     range: string
     description: >-
-      The Ensembl gene id as Open Targets stated it, before this ingest normalised
-      the object to HGNC. Biolink's own slot for exactly that, so a Biolink
-      consumer needs no local knowledge to find it -- the mirror of how the
-      Reactome ingest keeps its UniProt accession in biolink:original_subject.
-
-      A string, not a CURIE reference: biolink:original_object is declared
-      owl:DatatypeProperty in the pinned 4.4.4 release, and emitting an IRI for a
-      datatype property is incoherent for anything that reasons over the graph.
-      The id is recorded but not traversable, which is the right trade while
-      nothing in this graph describes Ensembl entities.
-
-      Kept at all because the normalisation is otherwise a one-way door. 1,548 of
-      1,550 target ids resolve to HGNC (99.9%); the two that do not are reported
-      to reports/unresolved_mechanism_targets.tsv rather than silently dropped.
+      The source Ensembl gene identifier before normalization to HGNC, retained as a
+      string to preserve the mapping provenance. Unresolved identifiers are recorded in
+      reports/unresolved_mechanism_targets.tsv.
 
   max_clinical_stage:
     slot_uri: sagebrain:max_clinical_stage
     range: ClinicalStageEnum
     required: true
     description: >-
-      The highest stage reached for THIS drug-disease pair, a maximum over the
-      clinical reports behind it.
+      The highest clinical stage recorded for a drug-disease pair, aggregated by Open
+      Targets from its supporting clinical reports. Interpret this value with the
+      association's disease or phenotype.
 
-      A property of the edge, never of the drug. A compound that failed phase 3
-      for one disease and was approved for another carries both values, on
-      different edges, and hoisting either onto the compound erases the
-      difference. Quote a stage with its indication or not at all.
-
-      It also flattens history within one pair: a maximum over reports cannot say
-      that a phase-3 trial was stopped. clinical_report_count is the cheap signal
-      for how much is behind the value, and the trial nodes are where that history
-      actually lives -- though they cover only the CLINICAL_TRIAL reports naming a
-      ChEMBL-resolved drug, so the count and the reachable trials do not have to
-      agree.
+      The maximum does not preserve individual trial outcomes. Report counts and trial
+      nodes provide additional context, but differ in scope and are not linked by
+      explicit report identifiers.
 
   clinical_report_count:
     slot_uri: sagebrain:clinical_report_count
     range: integer
     required: true
     description: >-
-      How many clinical reports Open Targets lists for this drug-disease pair. A
-      stage backed by fourteen reports and one backed by a single record are not
-      equally load-bearing.
-
-      Retained now that trials are projected, and not redundant with them: the
-      count is over all four record kinds, while trial nodes cover only
-      CLINICAL_TRIAL records that name a ChEMBL-resolved drug. A pair whose count
-      exceeds the trials reachable from it has evidence this layer does not
-      represent, and the two numbers disagreeing is information rather than a bug.
+      The number of supporting report identifiers listed by Open Targets for a
+      drug-disease pair. This count spans all report types and is not a count of trial
+      nodes in this graph. The source indication filter also differs from the trial
+      projection's scope.
 
   trial_clinical_stage:
     slot_uri: sagebrain:trial_clinical_stage
     range: ClinicalStageEnum
     required: true
     description: >-
-      The stage of THIS trial, from the source's clinicalStage column.
+      The clinicalStage value for an individual trial. Its scope is distinct from the
+      molecule's overall_clinical_stage and the indication association's
+      max_clinical_stage.
 
-      The third and narrowest of the three stage slots, and the one that makes the
-      other two legible: max_clinical_stage is a maximum over the reports behind a
-      drug-disease pair, and this is one of those reports. 28,465 trials are
-      PHASE_4, a value no other slot in this graph carries, because the source
-      collapses phase 4 into APPROVAL at the compound level.
-
-      Named trial_ rather than clinical_stage for the reason overall_clinical_stage
-      is named that way: three slots whose confusion yields a plausible wrong answer
-      need more than a few characters between them. Acceptance check 11 fails if any
-      subject carries two of the three.
-
-      NOT biolink:clinical_trial_phase, whose range ResearchPhaseEnum is a different
-      vocabulary and cannot express APPROVAL or UNKNOWN.
+      A local slot preserves the Open Targets vocabulary, which differs from the
+      ResearchPhaseEnum used by biolink:clinical_trial_phase.
 
   clinical_trial_overall_status:
     slot_uri: biolink:clinical_trial_overall_status
     range: ClinicalTrialStatusEnum
     required: true
     description: >-
-      The trial's overall status, from the source's trialOverallStatus column.
-      Exactly one per trial. See ClinicalTrialStatusEnum.
-
-      Biolink's own slot, used because it fits without compromise: domain
-      `clinical trial`, and a range enum whose 13 values match Open Targets' 13
-      exactly. Emitted for the same reason as trial_stop_reason_category -- it is
-      the other half of that fact. A stop reason without a status cannot
-      distinguish a trial that halted midway from one that never enrolled anyone,
-      and the maximum clinical stage on the indication edge preserves neither.
+      The trialOverallStatus value for the trial. Interpreted alongside stop reasons to
+      distinguish early termination, withdrawal before enrollment, and temporary
+      suspension.
 
   trial_start_date:
     slot_uri: sagebrain:trial_start_date
     range: string
     description: >-
-      When the trial started, to the MONTH, emitted as an xsd:gYearMonth literal.
+      The source trial start date at month precision, emitted as xsd:gYearMonth. Older
+      source records may have a day supplied during normalization, so the projection
+      retains only the year and month.
 
-      The source column is a date32 and its day is manufactured for older records:
-      92.6% of pre-2000 and 91.7% of 2000-2009 start dates fall on the last day of
-      a month, against 10.5% for 2020 and later, because the registry value is
-      YYYY-MM and normalisation supplies the day. Across all trials 57.7% land on
-      the first or last of a month where a uniform spread would give about 6.6%.
-      Truncating to year-month is not a loss -- it is a refusal to assert a day the
-      release invented, and the datatype is what carries that claim.
-
-      Range is checked separately from precision. Dates outside 1950 through ten
-      years past the release are dropped as placeholders -- at 26.06 exactly four
-      in-scope rows, 1931-06-30, 2040-01-01, 2050-01-31 and 2099-01-01, three of
-      them on trials that never began -- and listed in
-      reports/implausible_trial_dates.tsv; the trial node is still emitted,
-      without a date. The window deliberately clears real planned starts: 114
-      in-scope trials begin in 2027-2030 and 92 of those are NOT_YET_RECRUITING.
-      The 169 in-scope pre-1990 dates are genuine retrospective registrations,
-      including NHLBI trials from the 1960s. All counts here are over the trials
-      this layer emits, which is what the window is applied to; across all 230,990
-      trials the same figures are 150, 121 and 184.
-
-      Declared range string because LinkML has no gYearMonth type; the emitted
-      literal is typed xsd:gYearMonth and acceptance check 19 enforces that.
-      biolink:clinical_trial_start_date is range string too, which is exactly why
-      it is not used -- it cannot carry the precision claim.
+      Dates outside the configured plausibility window are omitted and recorded in
+      reports/implausible_trial_dates.tsv; their trial nodes are retained. The schema
+      uses a string range, while acceptance checks validate the RDF datatype and date
+      window.
 
   trial_stop_reason:
     slot_uri: sagebrain:trial_stop_reason
     description: >-
-      The registry's free text for why the trial stopped, verbatim: "Closed early
-      for futility.", "2 DLTs had been reported from first 4 patients on lowest
-      possible dose cohort." Present on 21,876 in-scope trials, always alongside at
-      least one trial_stop_reason_category.
-
-      Kept as well as the category because the category is a 13-way bucket and the
-      text is the evidence for it. "Negative" does not distinguish an interim
-      futility analysis from a failed primary endpoint; the sentence does.
+      The registry text describing why the trial stopped, retained alongside the source
+      categories to preserve details that the categories may omit.
 
   trial_stop_reason_category:
     slot_uri: sagebrain:trial_stop_reason_category
     range: TrialStopReasonCategoryEnum
     multivalued: true
     description: >-
-      Open Targets' classification of the stop reason. Up to three per trial;
-      23,786 values over 21,876 trials. See TrialStopReasonCategoryEnum.
+      Open Targets classifications of the trial stop reason. A trial may have multiple
+      categories; see TrialStopReasonCategoryEnum.
 
   trial_quality_control:
     slot_uri: sagebrain:trial_quality_control
     range: ReportQualityControlEnum
     multivalued: true
     description: >-
-      Quality-control flags Open Targets raises against this report. Up to three
-      per trial; 115,732 values over 88,815 trials. See ReportQualityControlEnum
-      for why all four values are emitted rather than only the two that gate
-      clinical_indication upstream.
+      Quality-control flags assigned by Open Targets to the report. All source flags are
+      retained; see ReportQualityControlEnum.
 
   trial_drug:
     slot_uri: sagebrain:trial_drug
@@ -681,41 +499,21 @@ slots:
     multivalued: true
     required: true
     description: >-
-      A compound this trial tests. 337,760 links over 193,469 trials and 9,578
-      distinct molecules, every one of them already a node in this graph -- the
-      scope filter is precisely "at least one drug resolved to ChEMBL", so a trial
-      node cannot dangle on this side.
+      A ChEMBL-resolved compound studied in the trial. A local slot links trials to
+      Compound nodes; biolink:clinical_trial_interventions has a different range.
 
-      Local rather than biolink:clinical_trial_interventions, whose range is
-      `clinical intervention`. These objects are biolink:ChemicalEntity and
-      biolink:SmallMolecule; this ingest does not even type them biolink:Drug (see
-      the Compound class). Emitting a Biolink slot whose declared range the objects
-      do not satisfy would be a range lie, and this layer keeps the asymmetry with
-      clinical_trial_conditions visible instead.
-
-      What absence means: 37,521 trials are excluded because no drug they name
-      carries a ChEMBL id, and they concentrate in cell, tissue, microbiota and
-      blood-product therapies -- mesenchymal stem cells, CAR-T, platelet-rich
-      plasma, faecal microbiota transplant, convalescent plasma -- plus class-level
-      names like "antibiotics". Within the trials that are here, a further 16,474
-      drug mentions carry no id. No trial node means no ChEMBL identity, NOT no
-      trial.
+      Trials without a ChEMBL-resolved drug are excluded. Unmapped drug mentions within
+      included trials are counted but do not produce links. Missing nodes or links
+      therefore reflect identifier coverage as well as source coverage.
 
   clinical_trial_conditions:
     slot_uri: biolink:clinical_trial_conditions
     range: DiseaseOrPhenotypicFeature
     multivalued: true
     description: >-
-      A disease or phenotype this trial studies. 177,344 links over 3,841 terms.
-
-      Biolink's own slot, whose domain (clinical trial) and range (disease or
-      phenotypic feature) both fit exactly -- unlike the intervention side. Used
-      in preference to a local slot wherever Biolink is faithful.
-
-      50,971 in-scope trials map no disease at all and carry none of these; they
-      are drug-only trial nodes rather than dropped records, because the absence is
-      the source's. A further 61,777 disease mentions inside in-scope trials carry
-      no ontology id.
+      A disease or phenotype studied in the trial, linked through its source ontology
+      identifier. Trials with no mapped condition remain in the graph with their drug
+      links.
 
 # ── classes ───────────────────────────────────────────────────────────────────
 
@@ -724,21 +522,13 @@ classes:
   Compound:
     class_uri: biolink:ChemicalEntity
     description: >-
-      A ChEMBL molecule, identified by its ChEMBL id under identifiers.org. No
-      SageBrain-local URIs are minted for external entities.
+      A molecule identified by its ChEMBL accession. Small molecules are typed as
+      biolink:SmallMolecule; other modalities use biolink:ChemicalEntity and retain the
+      source drug_type.
 
-      The Biolink class is a deliberately shallow split: "Small molecule" is typed
-      biolink:SmallMolecule, every other modality takes biolink:ChemicalEntity,
-      and drug_type carries the source's word. Mapping antibodies, oligonucleotides,
-      gene and cell therapies each onto a Biolink class would assert distinctions
-      this ingest cannot check.
-
-      Note what these nodes are NOT typed as: biolink:Drug. The release is a
-      molecule table, most of whose entries are research compounds with no
-      clinical stage at all (10,454 of 22,407 are UNKNOWN). Typing them Drug --
-      or emitting any property whose rdfs:domain is Drug -- would let a reasoner
-      in the stack conclude that every catalogue compound is a therapeutic. See
-      the open decision on sagebrain:targets below.
+      The catalogue includes research compounds, so membership does not establish
+      therapeutic use. Compounds referenced by associations but absent from the molecule
+      dataset are emitted as typed stubs without inferred names or modalities.
     slots:
       - id
       - name
@@ -752,26 +542,18 @@ classes:
       id:
         pattern: "^CHEMBL:CHEMBL\\d+$"
         description: >-
-          ChEMBL accession, e.g. CHEMBL:CHEMBL2103875. identifiers.org keys ChEMBL
-          on the full accession, prefix included -- unlike HGNC, which keys on the
-          bare number.
+          ChEMBL accession under identifiers.org, using the full CHEMBL-prefixed
+          accession as the local identifier.
       name:
-        description: The release's preferred name, upper-cased at source, e.g. TRAMETINIB.
+        description: >-
+          The preferred molecule name supplied by the source.
 
   Gene:
     class_uri: biolink:Gene
     description: >-
-      A gene that is the target of at least one mechanism of action, identified by
-      HGNC. Emitted as a typed node with its symbol and taxon rather than left as
-      a bare association endpoint, following the Reactome ingest: a consumer can
-      enumerate or label a release's genes without reading the association table,
-      and a join against a gene the ingest never asserted fails loudly instead of
-      matching nothing.
-
-      HGNC-keyed although the source is Ensembl-keyed, so genes are ONE kind of
-      node across this repo and join the Reactome ingest's gene nodes by IRI with
-      no mapping table. The Ensembl id survives on each association -- see
-      original_object.
+      A mechanism target identified by HGNC, with its approved symbol and taxon. HGNC
+      identifiers align gene identity with the Reactome ingest. The source Ensembl
+      identifier is retained on each association as original_object.
     slots:
       - id
       - name
@@ -779,31 +561,23 @@ classes:
     slot_usage:
       id:
         pattern: "^HGNC:\\d+$"
-        description: HGNC identifier, e.g. HGNC:6840.
+        description: >-
+          HGNC identifier under identifiers.org, using the numeric accession as the
+          local identifier.
       name:
-        description: HGNC-approved symbol, e.g. MAP2K1.
+        description: >-
+          HGNC-approved gene symbol.
 
   DiseaseOrPhenotypicFeature:
     class_uri: biolink:DiseaseOrPhenotypicFeature
     description: >-
-      A term an indication points at. Typed from the id prefix, because
-      clinical_indication mixes ontologies: MONDO, EFO, Orphanet, NCIT and OTAR
-      terms are typed biolink:Disease, HP and MP terms biolink:PhenotypicFeature
-      (8,591 and 430 indication rows respectively -- typing those Disease would be
-      wrong), and GO and OBA terms take this union class rather than being forced
-      either way.
+      A disease or phenotype referenced by an indication or trial. Nodes are typed from
+      the source identifier prefix: MONDO, EFO, Orphanet, NCIT, and OTAR map to
+      biolink:Disease; HP and MP to biolink:PhenotypicFeature; GO and OBA to the union
+      class.
 
-      Nodes exist for the 4,059 terms an indication or a trial references, not for
-      all 47,080 terms the release describes; the rest are another source's job.
-      The two axes overlap heavily but not completely: indications reference 3,749
-      terms and trials 3,841, and 310 of the trials' reach the graph only because
-      a trial names them (184 MONDO, 59 HP, 56 EFO, 4 OBA, 4 GO, 3 Orphanet).
-      indications.ttl emits the indication-referenced terms and trials.ttl emits
-      exactly that remainder, so every term is asserted once.
-
-      A prefix with no registered IRI base raises rather than being guessed,
-      because a disease id turned into a wrong IRI joins to nothing and reads as
-      absent data rather than as an error.
+      The projection includes referenced terms and their labels, without the source
+      ontology hierarchy. Unknown identifier prefixes fail validation.
     slots:
       - id
       - name
@@ -812,38 +586,24 @@ classes:
       id:
         pattern: "^(EFO|obo|ORDO):[A-Za-z]+_[0-9]+$"
         description: >-
-          e.g. EFO:EFO_0000658 (plexiform neurofibroma) or
-          obo:MONDO_0017827 (malignant peripheral nerve sheath tumour).
+          Source ontology identifier expanded through the registered EFO, OBO, or
+          Orphanet namespace.
       alt_label:
         description: >-
-          The release's exact synonyms. Kept because "MPNST" and "malignant
-          peripheral nerve sheath tumor" are the same term, and a consumer
-          matching free-text disease names needs both.
+          Exact synonyms supplied by the source for disease and phenotype name
+          resolution.
 
   CompoundToGeneAssociation:
     class_uri: biolink:ChemicalAffectsGeneAssociation
     description: >-
-      Reified mechanism-of-action association, mirroring the association pattern
-      used elsewhere in the graph.
+      A reified mechanism association between a compound and an HGNC gene, using
+      biolink:affects. The Biolink class accommodates the compound subject, gene object,
+      and general effect predicate.
 
-      The class was biolink:ChemicalToGeneAssociation, which does not exist in
-      Biolink and never has. Chosen now on the declared constraint rather than on
-      the name: this class fixes predicate to a subproperty of biolink:affects,
-      which is exactly what these edges carry, and its inherited ranges are
-      `chemical entity` for the subject and `biological entity` for the object,
-      which Compound and Gene satisfy. Its qualifier slots -- object aspect,
-      causal mechanism, qualified predicate -- are all optional, so the action
-      type staying in sagebrain:action_type remains a choice rather than a gap
-      (see ActionTypeEnum for why it is not mapped onto those qualifiers).
-
-      One source row can name MANY drugs -- 6,500 rows cover 5,820 molecules -- so
-      rows are fanned out per drug. The release also contains genuinely duplicate
-      rows, so edges are deduplicated on the full tuple; 689 duplicates were
-      collapsed at 26.06 and the count is reported rather than left to inflate the
-      graph.
-
-      Read target_type before counting anything. Group-level edges outnumber
-      single-entity edges roughly two to one.
+      Source rows are expanded across drugs and resolved targets, then deduplicated by
+      compound, gene, action, mechanism text, target type, and source Ensembl
+      identifier. target_type distinguishes individual target claims from claims about
+      groups whose members are enumerated.
     slots:
       - subject
       - object
@@ -860,15 +620,14 @@ classes:
         range: Compound
         pattern: "^CHEMBL:CHEMBL\\d+$"
       object:
-        description: The target gene, normalised to HGNC.
+        description: >-
+          The target gene, normalized to HGNC.
         range: Gene
         pattern: "^HGNC:\\d+$"
       predicate:
         description: >-
-          Fixed to biolink:affects -- neutral on purpose. The direction of effect
-          is in action_type, because a third of the source's 30 action types have
-          no faithful Biolink predicate and inventing one would assert more than
-          the source states.
+          Fixed to biolink:affects. The source action is retained in action_type without
+          imposing a more specific predicate mapping.
         equals_string: "biolink:affects"
       primary_knowledge_source:
         equals_string: "infores:open-targets"
@@ -876,22 +635,9 @@ classes:
   CompoundToDiseaseAssociation:
     class_uri: biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation
     description: >-
-      Reified clinical-indication association: this compound has been studied for,
-      or approved for, this disease, reaching this stage.
-
-      The class was biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation, which
-      does not exist in Biolink. The nearest name that does is
-      ChemicalEntityToDiseaseOrPhenotypicFeatureAssociation, and it is the WRONG
-      class: it describes an interaction "where the presence of the chemical gives
-      rise to or exacerbates the phenotype" -- the harm direction, the opposite of
-      an indication. Taking the closest spelling would have replaced a name that
-      joined to nothing with one that asserted something false, which is worse.
-
-      This class instead fixes predicate to a subproperty of
-      `treats or applied or studied to treat`, which is exactly the predicate
-      these edges carry, and is described as covering a chemical or treatment
-      "used to treat, or is being studied to treat" a condition -- the deliberately
-      weak reading this layer needs, for the reason set out under predicate below.
+      A reified clinical indication associating a compound with a disease or phenotype
+      for which it has been studied or approved. The association carries the source's
+      maximum clinical stage and supporting report count.
     slots:
       - subject
       - object
@@ -905,20 +651,14 @@ classes:
         range: Compound
         pattern: "^CHEMBL:CHEMBL\\d+$"
       object:
-        description: The disease or phenotype the compound is indicated for.
+        description: >-
+          The disease or phenotype associated with the clinical indication.
         range: DiseaseOrPhenotypicFeature
       predicate:
         description: >-
-          Fixed to biolink:treats_or_applied_or_studied_to_treat -- the WEAK
-          predicate, on purpose. 75,293 of 86,468 indication rows are below
-          APPROVAL and PHASE_2 alone is 28,370; a phase-1 trial is a compound
-          being studied for a disease, not one that treats it. Using biolink:treats
-          would turn every abandoned trial in the release into a therapeutic claim.
-
-          This is also why sagebrain:used_to_treat is NOT used here: the model
-          declares it rdfs:subPropertyOf biolink:treats, so emitting it for a
-          sub-approval indication would entail the strong claim. See the
-          open decision below.
+          Fixed to biolink:treats_or_applied_or_studied_to_treat to cover both
+          investigational and approved uses. biolink:treats and its subproperty
+          sagebrain:used_to_treat would overstate investigational indications.
         equals_string: "biolink:treats_or_applied_or_studied_to_treat"
       primary_knowledge_source:
         equals_string: "infores:open-targets"
@@ -926,30 +666,13 @@ classes:
   ClinicalTrial:
     class_uri: biolink:ClinicalTrial
     description: >-
-      One clinical trial from clinical_report, identified by its ClinicalTrials.gov
-      accession. 193,469 nodes at 26.06, all sourced from AACT.
+      A clinical trial identified by its ClinicalTrials.gov accession, projected from a
+      CLINICAL_TRIAL record naming a ChEMBL-resolved drug. A trial is represented as a
+      study node with stage, status, dates, and links to compounds and conditions.
 
-      A NODE, not a reified association, unlike everything else in this schema that
-      joins two entities. Mechanisms and indications are associations because each
-      IS an assertion with a subject and an object. A trial is a study -- an event
-      that happened, with properties -- and the drugs and diseases hang off it as
-      node properties. Modelling it as an association would also have cost roughly
-      3M triples for the drug x disease cross product, but the shape is the reason;
-      the arithmetic merely agrees.
-
-      What this adds that indications cannot. 80,145 of these trials are new to the
-      graph; the other 113,324 sit behind indication edges that previously carried
-      only sagebrain:clinical_report_count. A maximum clinical stage flattens
-      history within a drug-disease pair -- it cannot say that the phase-3 trial was
-      halted, and 21,876 of these trials record exactly that. Joining a trial back
-      to its indication edge is a join on (trial_drug, clinical_trial_conditions)
-      against (subject, object); clinicalReportIds is not emitted, so the graph does
-      not assert the link directly. See the open decision below.
-
-      Scope is two filters, both about identity rather than merit: type =
-      CLINICAL_TRIAL, and at least one drug resolved to ChEMBL. See ReportTypeEnum
-      and trial_drug for what each leaves out and why absence must not be read as
-      evidence of absence.
+      Trials can be joined to indication associations by drug and disease. This join
+      does not reproduce the source's supporting report list: report identifiers are not
+      emitted, and the indication and trial projections use different filters.
     slots:
       - id
       - name
@@ -965,52 +688,37 @@ classes:
       id:
         pattern: "^CLINICALTRIALS:NCT\\d{8}$"
         description: >-
-          ClinicalTrials.gov accession, e.g. CLINICALTRIALS:NCT02407405.
-          identifiers.org registers `clinicaltrials` with pattern ^NCT\d{8}$ and
-          Biolink's clinical trial class lists the same prefix. The source spells
-          it lowercase (nct02407405); the case is normalised on the way out, and a
-          report id that is not an NCT accession fails rather than minting an IRI
-          that resolves nowhere.
-
-          The url column is not emitted: it is
-          https://clinicaltrials.gov/study/<NCT> on every in-scope row, derivable
-          from this id. It is read anyway, and deviations counted, so that stays a
-          checked claim.
+          ClinicalTrials.gov accession normalized to uppercase and expanded through the
+          identifiers.org clinicaltrials namespace. Invalid accessions fail validation.
+          The registry URL is derivable from this identifier.
       name:
         required: false
         description: >-
-          The registry's official title, from trialOfficialTitle. Absent on 3,282
-          of 193,469 trials, and deliberately not substituted: the source's `title`
-          column fills those gaps with generated text ("Report in Phase 3 stage for
-          2 molecules and Retinitis Pigmentosa"), which is derived, not a name the
-          registry gave the trial. An unlabelled node is better than a fabricated
-          label. Where trialOfficialTitle is present, `title` is byte-identical to
-          it on every row.
+          The registry title from trialOfficialTitle, when available. Generated text
+          from the source title column is not substituted for a missing registry title.
 
   Dataset:
     class_uri: void:Dataset
     description: >-
-      Per-release named graph metadata, in the default graph. Reloading replaces
-      only urn:sagebrain:opentargets:<release>, so releases sit side by side.
-
-      The four caveats a consumer cannot recover from the triples -- what
-      max_clinical_stage means, why the indication predicate is weak, what a
-      group-level mechanism edge claims, and why genes are HGNC-keyed -- are
-      asserted here as separate rdfs:comment statements, not only in documentation.
+      Metadata describing the release graph, including source, version, license,
+      provenance, triple count, and interpretation notes. The local Oxigraph loader
+      writes this metadata to the default graph. Deposit metadata must identify the
+      destination snapshot graph.
     attributes:
       source:
         slot_uri: dcterms:source
         range: uriorcurie
-        description: The release's FTP output directory.
+        description: >-
+          The Open Targets release output directory.
       source_integrity_digest:
         slot_uri: sagebrain:source_integrity_digest
         description: >-
-          sha1 of the release's own release_data_integrity manifest, which lists a
-          SHA-1 for every file in the release. One digest that identifies the whole
-          release, playing the role the Zenodo version DOI plays for Reactome.
+          Digest of the release_data_integrity manifest, which records the upstream file
+          checksums and anchors the downloaded release.
       version:
         slot_uri: pav:version
-        description: The Open Targets release, e.g. "26.06".
+        description: >-
+          The Open Targets release identifier.
       issued:
         slot_uri: dcterms:issued
         range: date
@@ -1027,60 +735,12 @@ classes:
         slot_uri: prov:wasGeneratedBy
         range: uriorcurie
 
-# ── open decisions ────────────────────────────────────────────────────────────
+# ── model review ──────────────────────────────────────────────────────────────
 #
-# 1. sagebrain:targets and sagebrain:used_to_treat are already in the model, and
-#    this ingest emits NEITHER. Both are direct Drug-> edges; this layer emits
-#    reified Biolink associations instead, so a model-aware consumer looking for
-#    the model's own predicates currently finds nothing here.
+# Direct sagebrain:targets and sagebrain:used_to_treat predicates are not emitted.
+# Their Drug domain, treatment semantics, and lack of mechanism qualifiers need
+# review before they can supplement the reified associations.
 #
-#    Not an oversight, and not obviously right either -- the blockers are
-#    specific:
-#
-#    * Both declare rdfs:domain biolink:Drug. These compound nodes are not Drugs
-#      (see the Compound class), so emitting either would let a reasoner type
-#      22,407 research compounds as therapeutics by domain inference.
-#    * sagebrain:used_to_treat is rdfs:subPropertyOf biolink:treats, so it is
-#      only defensible for APPROVAL-stage edges -- 11,175 of 86,468.
-#    * sagebrain:targets carries no action type or target type, so a family-level
-#      claim and a measured single-protein interaction would become the same
-#      triple, which is the over-counting trap in TargetTypeEnum.
-#
-#    A defensible middle path exists and is not implemented: emit
-#    sagebrain:targets only for single-entity target types, and
-#    sagebrain:used_to_treat only for APPROVAL edges, in both cases alongside the
-#    reified association rather than instead of it, and additionally type those
-#    subjects biolink:Drug so the domain inference is sound rather than accidental.
-#    That is a modelling decision for review, not a mechanical addition.
-#
-# 2. Seventeen slots here are minted under sagebrain: and not yet defined in
-#    sagebrain-model: action_type, canonical_smiles, clinical_report_count,
-#    drug_type, inchi_key, max_clinical_stage, overall_clinical_stage,
-#    mechanism_of_action, parent_molecule, target_name, target_type,
-#    trial_clinical_stage, trial_drug, trial_quality_control, trial_start_date,
-#    trial_stop_reason, trial_stop_reason_category. Acceptance check 22 lists them
-#    with statement counts every run, so the model repo can triage by how much
-#    rides on each -- trial_drug alone is 337,760 statements. That warning is the
-#    intended to-do list.
-#
-# 4. clinicalReportIds is still not emitted, so nothing in the graph states which
-#    trials an indication edge was computed from. A consumer joins the two sides on
-#    (drug, disease) instead, which is nearly but not exactly the same set: the
-#    indication's report list spans all four record kinds and is filtered on two
-#    quality-control flags, while trial nodes are trials only and unfiltered.
-#    Emitting the ids would make the link exact and would also let a consumer see
-#    which reports behind an indication are NOT trials. The cost is that indication
-#    associations are blank nodes, so the edge would have to point at the trial
-#    rather than the reverse, and 147,845 such links is not free. Left open.
-#
-# 5. trialLiterature -- 337,018 PMIDs over 83,501 rows, 255,869 distinct, with
-#    5,491 nulls inside the lists -- is read by nothing and is therefore absent
-#    from both this schema and the layout gate, like crossReferences. It is the
-#    obvious next addition to the trial layer: it would let a trial node cite the
-#    publications reporting it, which is the one kind of evidence this layer
-#    currently points at only through the registry URL it does not emit.
-#
-# 3. crossReferences (PubChem, DrugBank, ...) is read by nothing yet and is
-#    therefore absent from both this schema and the layout gate's required
-#    columns. It is the natural next step for structure- and xref-based
-#    resolution of the long tail.
+# Acceptance checks report local terms awaiting definition in sagebrain-model.
+# Future extensions may add explicit indication-to-report links, trial literature,
+# and compound cross-references. See opentargets/DESIGN.md for scope decisions.

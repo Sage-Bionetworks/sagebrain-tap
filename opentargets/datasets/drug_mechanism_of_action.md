@@ -1,13 +1,12 @@
 # `drug_mechanism_of_action`
 
-ChEMBL mechanism rows: what a drug does to which gene. Two Spark parts,
-**6,500 rows, 7 columns**. Emitted by
+ChEMBL mechanism records describing compound actions and targets. Release 26.06 contains
+**6,500 rows and 7 columns** across two Spark parts. Emitted by
 [`transform_mechanisms.py`](../transform_mechanisms.py).
 
-**The dataset has no key column.** There is no `id`, and a row is a
-(drugs × targets × action × mechanism text × target type) bundle rather than an edge,
-so identity has to be reconstructed from the values. That is why deduplication is on
-the full tuple rather than on an upstream identifier.
+The dataset has no `id` column. Rows contain lists of drugs and targets together with
+action, mechanism text, and target type. The transform expands these lists and
+deduplicates the resulting associations by their content.
 
 ## Columns
 
@@ -15,7 +14,7 @@ All six read columns are in the layout gate; `references` is the only unused one
 
 | Column | Type | Fill | Read |
 |---|---|---:|---|
-| `chemblIds` | list\<string\> | 100%, max 2 | yes — fanned out, one edge per drug |
+| `chemblIds` | list\<string\> | 100%, max 2 | yes — expanded across drugs and targets |
 | `targets` | list\<string not null\> | 5,764 non-empty, max 78 | yes — Ensembl, resolved to HGNC |
 | `actionType` | string | 100%, 30 values | yes — `sagebrain:action_type` |
 | `targetType` | string | 100%, 9 values | yes — `sagebrain:target_type` |
@@ -25,12 +24,12 @@ All six read columns are in the layout gate; `references` is the only unused one
 
 ## Vocabularies
 
-`actionType` has 30 values (`ACTION_TYPES`), led by INHIBITOR (3,379), ANTAGONIST
-(978), AGONIST (948), BINDING AGENT (253) and BLOCKER (179). They are emitted verbatim
-rather than mapped to Biolink predicates — `OPENER` and `STABILISER` have no faithful
-equivalent, so every edge uses `biolink:affects` and carries the source word.
+`actionType` has 30 values (`ACTION_TYPES`), led by INHIBITOR (3,379), ANTAGONIST (978),
+AGONIST (948), BINDING AGENT (253) and BLOCKER (179). They are emitted verbatim
+alongside `biolink:affects`. The vocabulary does not map consistently to more specific
+Biolink predicates.
 
-`targetType` has 9 values (`TARGET_TYPES`), and the split is load-bearing:
+`targetType` has 9 values, validated against `TARGET_TYPES`:
 
 | Value | Rows | | Value | Rows |
 |---|---:|---|---|---:|
@@ -40,29 +39,30 @@ equivalent, so every edge uses `biolink:affects` and carries the source word.
 | protein complex group | 292 | | protein-protein interaction | 9 |
 | protein nucleic-acid complex | 85 | | | |
 
-Only `single protein`, `chimeric protein` and `nucleic-acid` (`SINGLE_TARGET_TYPES`)
-mean one drug measured against one gene. For the rest, `targets` enumerates a named
-group's **members** — trametinib's "MEK1/2" row lists MAP2K1 and MAP2K2 — so the edge
-asserts group membership, not an independently measured interaction.
+Only `single protein`, `chimeric protein` and `nucleic-acid` (`SINGLE_TARGET_TYPES`) are
+classified as individual targets by this ingest. For other types, `targets` enumerates
+members of a named group. For example, trametinib's MEK target group lists MAP2K1 and
+MAP2K2; the resulting associations share a group-level claim.
 
 ## What the ingest emits
 
-14,708 `ChemicalAffectsGeneAssociation` edges over 1,548 HGNC gene nodes. Group-membership
-edges outnumber single-protein edges **9,506 to 5,202**, so any count of "drug–target
-interactions" has to filter on `sagebrain:target_type` or it inflates by ~1.8×.
+The transform emits 14,708 `ChemicalAffectsGeneAssociation` records and 1,548 HGNC gene
+nodes. Of these associations, 9,506 derive from group targets and 5,202 from individual
+targets. Filter on `sagebrain:target_type` when counting individual drug–target
+interactions.
 
 Ensembl IDs resolve through the separately pinned HGNC snapshot: 15,397 of 15,404
 lookups resolve, 2 distinct IDs unresolved. The Ensembl ID stays on the edge as
 `biolink:original_object`.
 
-## Quirks
+## Data characteristics
 
 **736 rows have no gene target** (11.3%) — vaccine antigens and some cell therapies.
-Counted and reported, never emitted: an edge needs two endpoints.
+These rows are counted but produce no association.
 
-**689 duplicate edges are collapsed.** Only one pair of rows is byte-identical
-upstream; the rest of the duplication appears *after* fanning out `chemblIds` ×
-`targets` × resolved HGNC, where two different rows land on the same tuple.
+**689 duplicate edges are collapsed.** Only one pair of rows is byte-identical upstream;
+the rest of the duplication appears *after* expanding `chemblIds` × `targets` × resolved
+HGNC, where two different rows land on the same tuple.
 
 **One row can carry 78 targets.** The long tail is protein families, and each member
 becomes its own edge, which is the main reason 6,500 rows produce 14,708 edges.

@@ -1,12 +1,11 @@
 # `clinical_indication`
 
-Drug–disease pairs with the highest clinical stage reached. One file,
-**86,468 rows, 5 columns**. Emitted by
+Drug–disease pairs with the highest clinical stage reached. Release 26.06 contains
+**86,468 rows and 5 columns** in a single file. Emitted by
 [`transform_indications.py`](../transform_indications.py).
 
-The cleanest dataset in the release: every column is 100% filled, and
-`(drugId, diseaseId)` is unique across all 86,468 rows — no deduplication is needed
-and none happens.
+Every column is populated, and `(drugId, diseaseId)` is unique. The transform supports
+deduplication, but no duplicate associations are removed in this release.
 
 Upstream builds it from [`clinical_report`](clinical_report.md) under a QC filter that
 drops `PHASE_IV_NOT_APPROVED` and `INDIRECT_PRIMARY_PURPOSE` records.
@@ -24,12 +23,12 @@ drops `PHASE_IV_NOT_APPROVED` and `INDIRECT_PRIMARY_PURPOSE` records.
 ## Vocabulary
 
 `maxClinicalStage` uses 11 of the 13 `CLINICAL_STAGES`: PHASE_2 (28,370), PHASE_3
-(15,850), APPROVAL (11,175), UNKNOWN (10,218), PHASE_1 (9,637), PHASE_1_2 (6,443) and
-a short tail. `PHASE_4` and `WITHDRAWAL` never appear here.
+(15,850), APPROVAL (11,175), UNKNOWN (10,218), PHASE_1 (9,637), PHASE_1_2 (6,443) and a
+short tail. `PHASE_4` and `WITHDRAWAL` never appear here.
 
 ## Disease ID prefixes
 
-The object axis is an EFO-based mix of ontologies, not MONDO alone:
+Disease and phenotype identifiers come from an EFO-based collection of ontologies:
 
 | Prefix | Rows | | Prefix | Rows |
 |---|---:|---|---|---:|
@@ -38,43 +37,37 @@ The object axis is an EFO-based mix of ontologies, not MONDO alone:
 | EFO | 6,300 | | OBA | 35 |
 | Orphanet | 432 | | NCIT / OTAR | 5 |
 
-HP and MP are phenotypes, so `DISEASE_NODE_CLASS` types nodes from the prefix rather
-than calling everything a disease. An unknown prefix fails the run instead of
-producing a guessed IRI.
+`DISEASE_NODE_CLASS` maps identifier prefixes to node classes, including phenotype
+classes for HP and MP. An unknown identifier prefix fails validation.
 
 ## What the ingest emits
 
-86,468 `ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation` edges over 11,364 drugs ×
-3,749 diseases, 11,175 of them at APPROVAL. The predicate is
-`biolink:treats_or_applied_or_studied_to_treat`, deliberately weaker than
-`biolink:treats`: 75,293 rows sit below APPROVAL, and a phase-1 trial is a compound
-being studied, not one that treats.
+86,468 `ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation` edges over
+11,364 drugs × 3,749 diseases, 11,175 of them at APPROVAL. The predicate is
+`biolink:treats_or_applied_or_studied_to_treat`, which includes investigational uses. Of
+these associations, 75,293 have stages below APPROVAL; using `biolink:treats` would
+overstate their meaning.
 
-Labels and synonyms for the 3,749 referenced terms come from
-[`disease`](disease.md).
+Labels and synonyms for the 3,749 referenced terms come from [`disease`](disease.md).
 
 One `drugId` — `CHEMBL453514`, an APPROVAL for MONDO_0005113 — has no row in
-[`drug_molecule`](drug_molecule.md). Without help the edge would point at an IRI
-carrying no triples at all, so a query joining indications to compound labels
-would return one approval fewer and report no error. It is emitted as a typed but
-unlabelled `biolink:ChemicalEntity` stub, the same treatment a disease term the
-release does not describe already gets; the absent `sagebrain:drug_type` is how a
-consumer tells a stub from a described molecule, and acceptance check 4 asserts
-that no association subject is left untyped.
+[`drug_molecule`](drug_molecule.md). The transform emits a typed, unlabeled
+`biolink:ChemicalEntity` stub for this reference. The missing `sagebrain:drug_type`
+distinguishes it from described molecules. Acceptance checks require all association
+subjects to resolve to typed compound nodes.
 
-## Quirks
+## Data characteristics
 
 **Report IDs are counted, not emitted.** `clinicalReportIds` becomes
-`sagebrain:clinical_report_count` — a stage backed by 14 reports and one backed by a
-single record are not equally load-bearing. The lists are long (up to 856) and their
-147,845 distinct IDs **all resolve** into `clinical_report`, with zero dangling
-references, so the count can become real edges whenever the trial layer lands. See
-[TRIALS.md](../TRIALS.md).
+`sagebrain:clinical_report_count`. Lists contain up to 856 entries, and all 147,845
+distinct report IDs resolve to `clinical_report`. Explicit report links remain outside
+the projection; see [TRIALS.md](../TRIALS.md).
 
 **Stage belongs to the pair, never the drug.** A drug that failed phase 3 for one
 disease and was approved for another carries both, on different edges.
-`drug_molecule.maximumClinicalStage` is the drug-level maximum and is emitted under a
-deliberately different name, `sagebrain:overall_clinical_stage`.
+`drug_molecule.maximumClinicalStage` is the source-supplied molecule-level stage,
+emitted as `sagebrain:overall_clinical_stage`. It cannot be derived reliably from the
+indication associations.
 
 **`id` is gated but unread.** It is in `required_columns` and not in the transform's
-column list — harmless, but the gate is wider than the read here.
+column list, so required-column validation includes an unused field.

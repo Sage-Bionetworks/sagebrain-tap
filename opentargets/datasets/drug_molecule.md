@@ -1,8 +1,8 @@
 # `drug_molecule`
 
-ChEMBL molecules: the node layer the rest of the drug graph hangs off. One Spark
-part (`part-00000-5581d2c3-…`), **22,407 rows, 13 columns**. Every row is one ChEMBL
-ID; `id` is unique.
+ChEMBL molecule records used by the mechanism, indication, and trial projections.
+Release 26.06 contains **22,407 rows and 13 columns** in a single Spark part. Each row
+has a unique ChEMBL `id`.
 
 Emitted by [`transform_molecules.py`](../transform_molecules.py) and
 [`export_label_index.py`](../export_label_index.py).
@@ -45,33 +45,33 @@ Nine are in the layout gate; the other four are present and unused.
 
 ## What the ingest emits
 
-A node per molecule — `biolink:SmallMolecule` for the 18,124 small molecules,
-`biolink:ChemicalEntity` for the other ten modalities — plus the preferred name,
-every synonym and trade name as `skos:altLabel`, structures, modality, overall stage
-and parent. Separately, `exports/chembl_labels.tsv`: 101,195 (label, molecule) rows,
-97,835 distinct folded labels, 2,607 of them ambiguous. Three synonyms are dropped
-for carrying a NUL where the source meant a registered-trademark sign; they are
-listed in `reports/rejected_labels.tsv`.
+Each molecule becomes a `biolink:SmallMolecule` or `biolink:ChemicalEntity` node with a
+preferred name, alternative labels, available structures, modality, overall stage, and
+parent reference. Alternative labels include source synonyms and trade names other than
+the preferred name. Separately, `exports/chembl_labels.tsv`: 101,195 (label, molecule)
+rows, 97,835 distinct folded labels, 2,607 of them ambiguous. Three labels containing
+NUL characters are excluded and listed in `reports/rejected_labels.tsv`.
 
-## Quirks
+## Data characteristics
 
 **16.6% of molecules have no structure.** `inchiKey`, `canonicalSmiles` and `molblock`
-share the same 83.4% fill — they are present or absent together. The 3,710 without are
-the biologics and cell therapies, so any structure-based resolver is small-molecule only.
+have matching coverage: they are present or absent together. Structure-based resolution
+cannot cover records lacking these fields, including biologics and cell therapies.
 
-**211 parent references dangle.** 1,999 molecules carry a `parentId`, but only 1,788 of
-those parents are rows in this file. `sagebrain:parent_molecule` therefore emits 211
-IRIs that have no node in the graph. `childChemblIds` is the inverse relation and is
-filled on only 3,676 rows, so it does not close the gap.
+**211 parent references have no corresponding molecule record.** 1,999 molecules carry a
+`parentId`, but only 1,788 of those parents are rows in this file.
+`sagebrain:parent_molecule` therefore emits 211 IRIs without descriptive molecule nodes
+in the graph. `childChemblIds` is the inverse relation and is filled on only 3,676 rows,
+so it does not close the gap.
 
 **`name` is not distinct.** 22,371 distinct names over 22,407 molecules, and on 1,473
 rows the preferred name is repeated inside `synonyms`. The label export folds case and
-records ambiguity rather than picking a winner.
+records all candidate molecules for ambiguous labels.
 
 **`description` is templated.** 100% filled but only 3,361 distinct values, so it is
 generated prose rather than a per-molecule annotation. Unused.
 
-**`crossReferences` is the useful unused column** — 18,000 molecules carry one, led by
+**`crossReferences` is outside the projection.** 18,000 molecules carry one, led by
 `drugbank` (11,160), `Probes&Drugs` (4,569), `DailyMed` (1,542), `USAN` (1,384) and
-`INN` (1,124). It is deliberately outside the gate; see the open decisions in
+`INN` (1,124). It is outside required-column validation; see the open decisions in
 [DESIGN.md](../DESIGN.md).

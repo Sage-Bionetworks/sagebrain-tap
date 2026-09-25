@@ -1,15 +1,17 @@
 # `disease`
 
-The EFO-based disease and phenotype ontology behind the indication axis. One file,
-**47,080 rows, 18 columns** — the widest dataset ingested and the most sparsely used.
-Read by [`transform_indications.py`](../transform_indications.py) for labels only.
+The EFO-based disease and phenotype ontology used by indications and trials. Release
+26.06 contains **47,080 rows and 18 columns** in a single file.
+[`transform_indications.py`](../transform_indications.py) and
+[`transform_trials.py`](../transform_trials.py) use its labels and exact synonyms.
 
-**Only 3,749 terms (8%) reach the graph** — the ones an indication actually
-references. The rest describe an ontology this ingest does not claim to serve.
+The graph includes 4,059 referenced terms: 3,749 used by indications and 310 additional
+terms used only by trials. Ontology relationships are not projected.
 
 ## Columns
 
-Six are in the layout gate, four are read, two are emitted.
+Six columns are required by layout validation. The transforms read identifiers, names,
+exact synonyms, and therapeutic areas; therapeutic areas are not emitted.
 
 | Column | Type | Fill | Read |
 |---|---|---:|---|
@@ -31,7 +33,7 @@ Six are in the layout gate, four are read, two are emitted.
 
 ## Term prefixes
 
-The file is much broader than the indication axis that uses it:
+The source ontology covers more terms than the projection references:
 
 | Prefix | Terms | | Prefix | Terms |
 |---|---:|---|---|---:|
@@ -40,37 +42,32 @@ The file is much broader than the indication axis that uses it:
 | EFO | 9,278 | | GSSO / OTAR / OBI | 29 |
 | HP | 2,322 | | | |
 
-`OBA` is the largest prefix in the file and almost entirely unreferenced by
-indications, which is the clearest sign that this dataset is an ontology dump rather
-than a curated indication vocabulary.
+`OBA` is the largest prefix in the file, but indications reference few of its terms. The
+source serves broader ontology use cases beyond this projection.
 
 ## What the ingest emits
 
-Nothing on its own. It supplies `rdfs:label` and `skos:altLabel` for the 3,749 terms
-[`clinical_indication`](clinical_indication.md) references, typed by ID prefix via
-`DISEASE_NODE_CLASS`. Synonyms matter: "MPNST" and "malignant peripheral nerve sheath
-tumor" are the same term, and a consumer matching free text needs both.
+The indication and trial transforms emit referenced terms with classes selected by
+`DISEASE_NODE_CLASS`, names as `rdfs:label`, and exact synonyms as `skos:altLabel`. The
+shared label map is loaded from this dataset before each transform scans its references.
 
-The whole file is loaded into memory because the referenced set is not known until
-the indications have been scanned; 47,080 terms of labels is small enough for that.
-
-## Quirks
+## Data characteristics
 
 **No ontology hierarchy is emitted.** `parents`, `children`, `ancestors` and
 `descendants` are all present and all dropped, so the disease nodes are a flat
-vocabulary. `descendants` runs to 25,048 entries on one term — projecting the
-hierarchy is a decision with real size consequences, not a free addition.
+vocabulary. `descendants` runs to 25,048 entries on one term — projecting the hierarchy
+would materially increase the projection size.
 
-**`therapeuticAreas` is read and discarded.** The transform loads it into its label
-map and never emits it — 26 distinct areas that would be a cheap grouping axis.
+**`therapeuticAreas` is read and discarded.** The transform loads it into its label map
+without emitting it. The source includes 26 distinct areas.
 
-**`dbXRefs` and `ancestors` are gated but never read.** They sit in
-`required_columns` while the transform reads only `id`, `name`, `exactSynonyms` and
-`therapeuticAreas`, so the gate asserts more than the ingest depends on.
+**`dbXRefs` and `ancestors` are gated but never read.** They sit in `required_columns`
+while the transform reads only `id`, `name`, `exactSynonyms` and `therapeuticAreas`, so
+required-column validation includes unused fields.
 
 **`id` and `code` are never equal.** `code` is the full PURL
-(`http://purl.obolibrary.org/obo/GO_0000050`), `id` the short form (`GO_0000050`).
-Only `id` is used.
+(`http://purl.obolibrary.org/obo/GO_0000050`), `id` the short form (`GO_0000050`). Only
+`id` is used.
 
-**`ontology` and `synonyms` are structs that restate flat columns**, so the same
-synonym data is present twice in two shapes.
+**`ontology` and `synonyms` are structs that restate flat columns**, so the same synonym
+data is present twice in two shapes.

@@ -1,19 +1,17 @@
-# Source dataset notes
+# Source dataset reference
 
-One page per Open Targets dataset this ingest downloads, describing the source as it
-actually is at release 26.06: column layout and fill, controlled vocabularies, what
-the transforms read and emit, and the quirks worth knowing before trusting a column.
+These pages describe the pinned Open Targets release 26.06 inputs: column types,
+coverage, controlled vocabularies, RDF mappings, and data limitations. Counts are
+measured from the pinned files. Source row counts and emitted node or association counts
+describe different stages of the pipeline.
 
-Counts are measured against the pinned inputs, not quoted from upstream docs.
-
-| Dataset | Rows | Projected | Notes |
+| Dataset | Source rows | Projection | Notes |
 |---|---:|---|---|
-| [`drug_molecule`](drug_molecule.md) | 22,407 | yes | Molecule nodes and the label index; 211 parent references dangle |
-| [`drug_mechanism_of_action`](drug_mechanism_of_action.md) | 6,500 | yes | No key column; group targets outnumber single-protein 9,506 to 5,202 |
-| [`clinical_indication`](clinical_indication.md) | 86,468 | yes | The cleanest dataset here — every column filled, every pair unique |
-| [`disease`](disease.md) | 47,080 | partly | Ontology dump; only 4,059 terms (9%) reach the graph, labels only |
-| [`clinical_report`](clinical_report.md) | 289,955 | partly | Trials only — 193,469 of 289,955 rows; four record kinds, manufactured date precision |
+| [`drug_molecule`](drug_molecule.md) | 22,407 | Molecule nodes and label index | Some parent references have no corresponding molecule record |
+| [`drug_mechanism_of_action`](drug_mechanism_of_action.md) | 6,500 | Mechanism associations and gene nodes | Source rows expand across drugs and target members |
+| [`clinical_indication`](clinical_indication.md) | 86,468 | Indication associations | Unique drug–disease pairs with stage and report count |
+| [`disease`](disease.md) | 47,080 | Referenced disease and phenotype nodes | Labels and synonyms for terms used by indications or trials |
+| [`clinical_report`](clinical_report.md) | 289,955 | Clinical trial nodes | Trials naming a ChEMBL-resolved drug; start dates use month precision |
 
-For why the other 51 release directories are excluded, see the scope table in
-[DESIGN.md](../DESIGN.md). For what the trial layer over `clinical_report` covers
-and leaves out, see [TRIALS.md](../TRIALS.md).
+See [DESIGN.md](../DESIGN.md) for dataset selection and modeling decisions, and
+[TRIALS.md](../TRIALS.md) for trial scope and interpretation.

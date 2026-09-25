@@ -1,89 +1,67 @@
 # Open Targets clinical trial layer
 
-`clinical_report` is projected as trial nodes by
-[transform_trials.py](transform_trials.py), emitted to `trials.ttl`. This page is
-the scope record: what the layer contains, what it deliberately leaves out, and
-why each boundary sits where it does.
-
-See [DESIGN.md](DESIGN.md) for the drug-layer model this extends,
-[README.md](README.md) for operations, [datasets/clinical_report.md](datasets/clinical_report.md)
-for the source as it stands, and [manifests/](manifests/) for the pinned release
-layout.
+[transform_trials.py](transform_trials.py) projects clinical trial records from
+`clinical_report` into `trials.ttl`. This document describes the projection's scope and
+interpretation. See [DESIGN.md](DESIGN.md) for the overall model, [README.md](README.md)
+for operations, and the [source dataset notes](datasets/clinical_report.md) for release
+measurements.
 
 ## Scope
 
-**Only `type = CLINICAL_TRIAL`.** That is 230,990 of the 289,955 records. The other
-three types — curated resources, drug labels and regulatory records — are provenance
-about a drug rather than trial evidence, and they have no usable identity: trial IDs
-are uniformly `nct<digits>`, with no exceptions, while the rest are a mix of DailyMed
-UUIDs, sha256 hashes and raw strings such as `019909s020lbl.pdf` or a bare URL. Only
-trials get a CURIE that survives a release.
+The projection includes `CLINICAL_TRIAL` records naming at least one ChEMBL-resolved
+drug. Trial identifiers are normalized to ClinicalTrials.gov accessions. Other report
+types use heterogeneous identifiers for which this ingest has no stable mapping across
+releases.
 
-**Only trials that join an emitted molecule.** 193,469 trials (83.8%) have at
-least one ChEMBL-resolved drug; their 9,578 distinct drugs are all already in
-`drug_molecule`, so no trial dangles. The 37,521 dropped trials do all name a drug —
-what they lack is a ChEMBL ID for it, and they concentrate in cell, tissue, microbiota
-and blood-product therapies (mesenchymal stem cells, CAR-T, platelet-rich plasma,
-faecal microbiota transplant, convalescent plasma) plus class-level names like
-`antibiotics` or `statin`. This filter is therefore an identity limit inherited from
-ChEMBL, not a judgement about intervention type, and it removes the modalities that
-[DESIGN.md](DESIGN.md) §4 already flags as a loose fit for `ChemicalEntity`.
+Trials without a ChEMBL-resolved drug are excluded. These records include cell, tissue,
+microbiota, and blood-product therapies, as well as broad intervention names such as
+`antibiotics`. Coverage therefore depends on source identifier resolution. An absent
+trial node does not establish that no trial exists.
 
-**Start dates as `xsd:gYearMonth`.** `trialStartDate` is a date32, but its day is
-manufactured for older records: 92.6% of pre-2000 and 91.7% of 2000–2009 start dates
-fall on the last day of a month, against 10.5% for 2020 and later, because the source
-value is `YYYY-MM` and normalisation supplies the day. Across all trials 57.7% land on
-the first or last of a month, where a uniform spread would give about 6.6%. Truncating
-to year-month asserts only what the release actually carries.
+Mapped drug mentions become compound links; unmapped mentions are counted but do not
+produce links. Acceptance checks verify that trial links resolve to typed nodes. Trials
+without mapped diseases remain as nodes with drug links.
 
-Range is a separate check from precision, and future dates are mostly real: 114
-in-scope trials start in 2027–2030, 92 of them `NOT_YET_RECRUITING` (150 and 121
-across all trials). Only a handful are placeholders. Dates outside 1950 through ten
-years past the release are dropped, which at 26.06 isolates exactly four in-scope
-rows — `1931-06-30`, `2040-01-01`, `2050-01-31` and `2099-01-01`, three of the four
-on `WITHDRAWN` trials that never began — without discarding a single planned start.
-They go to `reports/implausible_trial_dates.tsv` and the trial node is still emitted.
-Two further out-of-window rows exist in the release and never reach the check, because
-the drug filter already removed them: a 1900-01-31 `WITHDRAWN` trial and a second
-2050-01-31. The 169 in-scope pre-1990 dates (184 across all trials) are genuine
-retrospective registrations, including NHLBI trials from the 1960s. Above 1% of dated
-trials the run fails instead, because at that rate the date scheme changed rather than
-a few rows being wrong.
+Disease and phenotype nodes cover terms referenced by either indications or trials.
+`indications.ttl` emits indication-referenced terms, and `trials.ttl` emits the
+additional terms referenced only by trials.
 
-**Diseases.** Trials reference 3,841 terms, 310 of which no indication references
-(184 MONDO, 59 HP, 56 EFO, 4 OBA, 4 GO, 3 Orphanet). Those nodes are emitted too,
-which widens the disease pass from "terms referenced by indications" to terms
-referenced by either — 4,059 in all. `indications.ttl` emits the terms an indication
-references and `trials.ttl` emits exactly the remainder, so every term is asserted
-once. A further 50,971 in-scope trials map no disease at all and become drug-only
-trial nodes.
+## Clinical history
 
-## What this adds
+Trial nodes retain clinical stage, overall status, stop reasons, and quality-control
+flags. These properties preserve details that an indication's maximum clinical stage
+cannot express, such as whether a trial stopped early.
 
-80,145 trials are new to the graph; the other 113,324 are already referenced by
-indication associations, which previously carried only
-`sagebrain:clinical_report_count`. 21,876 carry a stop reason, and every record
-with `trialWhyStopped` free text also carries a category from a 13-value vocabulary
-(`Insufficient_Enrollment`, `Business_Administrative`, `Negative`,
-`Safety_Sideeffects` and others) — the trial history that
-[DESIGN.md](DESIGN.md) §4 notes an indication's maximum stage cannot preserve.
+Interpret stop reasons with the overall status: `TERMINATED` denotes an early end,
+`WITHDRAWN` a trial stopped before enrollment, and `SUSPENDED` a temporary halt.
+Acceptance checks validate this relationship.
 
-Every trial also carries `trialOverallStatus`, which is what makes a stop reason
-mean something: all 21,876 sit on `TERMINATED` (15,460), `WITHDRAWN` (5,934) or
-`SUSPENDED` (482), and a `Negative` category on a trial that halted midway is not
-the same claim as one on a trial that never enrolled a participant. That pairing
-is checked rather than assumed (acceptance check 20).
-`qualityControls` has four values, of which only `PHASE_IV_NOT_APPROVED` and
-`INDIRECT_PRIMARY_PURPOSE` gate `clinical_indication`; emitting all four lets a
-consumer reproduce or relax that filter.
+All source quality-control flags are emitted. Open Targets excludes reports flagged
+`PHASE_IV_NOT_APPROVED` or `INDIRECT_PRIMARY_PURPOSE` when constructing
+`clinical_indication`; the trial projection does not apply that filter. Consumers can
+use the retained flags to select the scope appropriate to their analysis.
 
-The three new vocabularies are constants in [common.py](common.py)
-(`TRIAL_STOP_REASON_CATEGORIES`, `REPORT_QUALITY_CONTROLS`,
-`TRIAL_OVERALL_STATUSES`) and are gated in [verify_schemas.py](verify_schemas.py)
-like the existing ones, across all 289,955 rows rather than only the trials in
-scope. `REPORT_TYPES` gates the scope filter itself.
+Report types, stop-reason categories, quality-control flags, and overall statuses are
+validated against the vocabularies in [common.py](common.py). Validation scans the
+source dataset, including records outside the projected scope.
 
-## What a trial node looks like
+## Start dates
+
+Start dates are emitted as `xsd:gYearMonth`. Older source records may contain only a
+year and month, with a day supplied during normalization. Month precision avoids
+implying that this day was recorded by the registry. The [source date
+analysis](datasets/clinical_report.md#data-characteristics) documents the observed
+distribution.
+
+The transform accepts years from 1950 through ten years after the release year. Dates
+outside this window are omitted and listed in `reports/implausible_trial_dates.tsv`,
+while their trial nodes are retained. A run fails if more than 1% of dated in-scope
+trials fall outside the window. Planned future starts within the window are retained.
+
+## RDF representation
+
+A trial is a study node with links to compounds and conditions. Mechanisms and
+indications use reified associations because they represent claims connecting entities.
 
 ```turtle
 CLINICALTRIALS:NCT01160926
@@ -99,63 +77,39 @@ CLINICALTRIALS:NCT01160926
     biolink:clinical_trial_conditions obo:MONDO_0006519 .
 ```
 
-A **node**, not a reified association, unlike mechanisms and indications. Those are
-associations because each *is* an assertion with a subject and an object; a trial is
-a study that happened, and the drugs and diseases are its properties. The
-alternative shape — one association per (trial, drug, disease) — would also have
-cost roughly 3M triples for the cross product, but the modelling is the reason and
-the arithmetic merely agrees.
-
-Biolink is used wherever it fits and a local slot only where it does not, which
-here splits four ways:
-
-| Fact | Slot | Why |
+| Fact | Property | Mapping rationale |
 |---|---|---|
-| Condition studied | `biolink:clinical_trial_conditions` | Domain and range both fit exactly |
-| Overall status | `biolink:clinical_trial_overall_status` | `ClinicalTrialStatusEnum` matches Open Targets' 13 values value-for-value |
-| Drug tested | `sagebrain:trial_drug` | Biolink's `clinical_trial_interventions` has range `clinical intervention`; these are `biolink:ChemicalEntity`, and this ingest does not even type them `biolink:Drug` ([schema/opentargets.yaml](../schema/opentargets.yaml), `Compound`) |
-| Stage | `sagebrain:trial_clinical_stage` | Biolink's `clinical_trial_phase` has range `ResearchPhaseEnum`, a different vocabulary that cannot express `APPROVAL` or `UNKNOWN` |
-| Start month | `sagebrain:trial_start_date` | Biolink's `clinical_trial_start_date` has range `string`, which cannot carry the month-precision claim |
+| Condition studied | `biolink:clinical_trial_conditions` | Domain and range match trial and condition nodes |
+| Overall status | `biolink:clinical_trial_overall_status` | The source vocabulary matches Biolink's status enum |
+| Compound studied | `sagebrain:trial_drug` | Links to Compound nodes; Biolink's intervention slot has a different range |
+| Clinical stage | `sagebrain:trial_clinical_stage` | Preserves the Open Targets vocabulary, which differs from Biolink's research phase enum |
+| Start month | `sagebrain:trial_start_date` | Explicit month-precision representation, validated as `xsd:gYearMonth` |
 
-Emitting a Biolink slot whose declared range the objects do not satisfy would be a
-range lie, so the last three are local and say why.
+Clinical-stage properties have distinct subjects: `overall_clinical_stage` on a
+molecule, `max_clinical_stage` on a drug–disease association, and `trial_clinical_stage`
+on a trial. Acceptance checks enforce this separation. Trial nodes retain `PHASE_4`,
+which the source represents as `APPROVAL` at the molecule level.
 
-`sagebrain:trial_clinical_stage` is a **third** stage slot, and the narrowest:
-`max_clinical_stage` scopes to a drug–disease pair, `overall_clinical_stage` to a
-molecule, and this to one trial. Acceptance check 11 fails if any subject carries
-two of them. 28,465 trials are `PHASE_4`, a value no other slot in the graph
-carries, because the source collapses phase 4 into `APPROVAL` at the compound level.
+## Fields outside the projection
 
-## Fields left out
+The transform reads `source`, `hasExpertReview`, and `url` to report deviations from the
+observed source characteristics. In the pinned release, projected trials come from AACT,
+have no expert-review flag, and carry a registry URL that can be derived from their
+accession. These fields are not emitted.
 
-`countries` and `sideEffects` are filled on 2,744 rows each and `year` on 561;
-`countries` is also dirty, listing `United States` and ` United States` as separate
-values. `phaseFromSource` holds 59 unnormalised variants mixing `PHASE2`, `phase 2`
-and `investigative` — read `trialPhase` or `clinicalStage` instead.
+Labels use `trialOfficialTitle`. When the registry title is missing, the source's
+`title` field may contain generated text; this text is not used as a substitute, and the
+trial remains unlabeled.
 
-`source`, `hasExpertReview` and `url` are gated and **read** but not emitted, because
-over the projected scope they are constant or derivable: `source` is `AACT` on all
-193,469 trials, `hasExpertReview` is false on all of them, and `url` is
-`https://clinicaltrials.gov/study/<NCT>`, which is the node's own identifier. Reading
-them anyway is what keeps those three claims checked against each release rather
-than asserted once here.
+`countries`, `sideEffects`, `year`, and `phaseFromSource` are outside the current
+projection. Their coverage and formatting are documented in the source notes.
+`trialLiterature` is also unused; adding publication links remains an extension under
+consideration.
 
-`title` is not emitted either. Where `trialOfficialTitle` is present the two columns
-are byte-identical; where it is absent — 3,282 in-scope trials — `title` holds
-generated text (`Report in Phase 3 stage for 2 molecules and Retinitis Pigmentosa`),
-which is derived, not a name the registry gave the trial. Those nodes go out
-unlabelled.
-
-`trialLiterature` (337,018 PMIDs over 83,501 rows, 255,869 distinct) is read by
-nothing and is therefore absent from both the layout gate and the schema, as
-`crossReferences` is on the molecule side. It is the obvious next addition: it
-would let a trial node cite the publications reporting it.
-
-`clinicalReportIds` on `clinical_indication` is still not emitted, so the graph does
-not state which trials an indication edge was computed from. A consumer joins the two
-sides on (drug, disease), which is nearly but not exactly the same set: the
-indication's report list spans all four record kinds and is filtered on two
-quality-control flags, while trial nodes are trials only and unfiltered.
+Indication `clinicalReportIds` are counted but not emitted as links. Joining trial nodes
+to indications by drug and disease does not reproduce the supporting report list
+exactly: indications aggregate multiple report types and apply a different
+quality-control filter.
 
 ## Recorded 26.06 result
 
@@ -177,5 +131,5 @@ quality-control flags, while trial nodes are trials only and unfiltered.
 | Trials with no registry title | 3,282 |
 | Triples | 1,639,457 |
 
-Unmapped mentions *inside* in-scope trials: 16,474 drug and 61,777 disease. Those
-are gaps in the source's own resolution, counted rather than guessed at.
+Unmapped mentions within in-scope trials: 16,474 drug and 61,777 disease. These mentions
+are counted but do not produce entity links.
