@@ -8,8 +8,10 @@ a test against a real loaded graph rather than a mock.
 
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
+from shared import biolink_terms
 from shared.model_terms import counts_from_iris
 from shared.oxigraph import GraphClient, load_oxigraph
 
@@ -86,6 +88,66 @@ class ModelTermScanTests(unittest.TestCase):
         The namespace filter lives in counts_from_iris, not in the query."""
         self.assertNotIn("ClinicalTrial", self.terms())
         self.assertNotIn("label", self.terms())
+
+
+#: A stand-in for the Biolink schema, so the verdict logic is testable without
+#: the network. `classes` must be non-empty -- load_model rejects a document
+#: with none, because attributes.yaml is `default_prefix: biolink` too and
+#: pointing the check at it would fail every class in the graph.
+FAKE_BIOLINK = """
+id: https://example.org/fake-biolink
+name: fake-biolink
+version: 4.4.4
+default_prefix: biolink
+classes:
+  chemical affects gene association: {}
+  clinical trial: {}
+slots:
+  clinical trial conditions: {}
+"""
+
+
+class BiolinkTermVerdictTests(unittest.TestCase):
+    """biolink: and sagebrain: deliberately reach opposite verdicts.
+
+    Biolink is published on a version this repo pins and is not ours to mint, so
+    an undefined term is a typo or a term that moved and the graph is wrong now.
+    Two association classes rode several releases under names Biolink never had,
+    so a check that could not fail would have been worth nothing.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.schema = Path(self.tmp.name) / "biolink.yaml"
+        self.schema.write_text(FAKE_BIOLINK)
+
+    def review(self, counts):
+        return biolink_terms.review(counts, version="4.4.4",
+                                    schema_yaml=str(self.schema))
+
+    def test_defined_terms_pass(self):
+        r = self.review(Counter({"ChemicalAffectsGeneAssociation": 14_708,
+                                 "clinical_trial_conditions": 177_344}))
+        self.assertTrue(r.passed)
+        self.assertEqual(r.undefined, [])
+
+    def test_an_undefined_term_fails_and_is_not_merely_a_warning(self):
+        """The exact defect that shipped: a plausible name Biolink never had."""
+        r = self.review(Counter({"ChemicalToGeneAssociation": 14_708}))
+        self.assertFalse(r.passed)
+        self.assertTrue(r.fatal, "an undefined biolink: term must FAIL, not warn")
+        self.assertEqual(r.undefined, ["ChemicalToGeneAssociation"])
+        self.assertIn("14,708", " ".join(r.lines()))
+
+    def test_an_unreadable_schema_warns_rather_than_failing(self):
+        """Not having read Biolink is not evidence the graph is wrong."""
+        r = biolink_terms.review(Counter({"ChemicalAffectsGeneAssociation": 1}),
+                                 version="4.4.4",
+                                 schema_yaml=str(self.schema) + ".missing")
+        self.assertFalse(r.passed)
+        self.assertFalse(r.fatal, "an unreachable Biolink must warn, not fail")
+        self.assertIn("could not read", r.detail)
 
 
 if __name__ == "__main__":

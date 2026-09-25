@@ -148,7 +148,9 @@ be defined in the pinned release — it is a published vocabulary, not ours to
 mint, so an undefined term is a typo or a term that moved and the graph is wrong
 now. That is the opposite verdict from a `sagebrain:` term, which only warns.
 Two association classes were carried for several releases under names Biolink
-never had; see the note in the schema.
+never had; see the note in the schema. Acceptance check 20 now enforces this
+against the release named by `settings.biolink_version`, so it cannot recur
+silently.
 [schema/opentargets.yaml](../schema/opentargets.yaml) defines the model. Namespace bases are in [shared/rdf.py](../shared/rdf.py) and
 [common.py](common.py). `sagebrain:` is the only local namespace; acceptance
 check 18 reports terms not yet defined in sagebrain-model.
@@ -275,7 +277,7 @@ Ten vocabularies are audited in total. Integrity failures, unpinned inputs,
 excessive unresolved target lookups and more than 1% implausible trial start dates
 also stop the pipeline.
 
-[acceptance_checks.py](acceptance_checks.py) runs twenty checks on the loaded
+[acceptance_checks.py](acceptance_checks.py) runs twenty-one checks on the loaded
 graph:
 
 - Compound typing and labels; typed gene and disease/phenotype objects.
@@ -290,7 +292,13 @@ graph:
   to asserted nodes; trial vocabularies; start dates typed `xsd:gYearMonth` and
   inside the plausible window; stop reasons only on `TERMINATED`, `WITHDRAWN` or
   `SUSPENDED` trials, each carrying exactly one status.
-- Local model-term definitions.
+- Biolink terms defined in the pinned release, and local model-term definitions.
+  The two namespaces reach opposite verdicts from one scan of the graph: an
+  undefined `biolink:` term FAILS, because Biolink is published on a pinned
+  version and a term it does not define is a typo or one that moved; an
+  unratified `sagebrain:` term only warns, because it is a to-do for the model
+  repo. An unreachable Biolink or model warns either way. Pass
+  `--biolink-yaml` to check against a working copy or run offline.
 
 Structural failures stop the pipeline. Model-term review only warns, including
 when the model cannot be fetched. Acceptance runs after loading; a failure does

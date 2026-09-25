@@ -62,7 +62,7 @@ restore the pinned archive rather than substituting HGNC's mutable latest file.
 | `transform_trials` | `trials.ttl` — clinical trial nodes with stage, status, start month, stop reasons and quality flags; trial-only disease nodes; dropped dates in `reports/` |
 | `export_label_index` | `exports/chembl_labels.tsv` — label→ChEMBL id, for consumers resolving free text |
 | `load_graph` | Release graph and `void.ttl` metadata in the default graph |
-| `acceptance_checks` | Twenty checks: node typing, edge resolution, vocabularies, gene keying, size, known facts, stage-slot separation, trial keying/links/dates/status, model terms |
+| `acceptance_checks` | Twenty-one checks: node typing, edge resolution, vocabularies, gene keying, size, known facts, stage-slot separation, trial keying/links/dates/status, Biolink and model terms |
 
 Every module supports `python -m opentargets.<module> --help`.
 See [design decisions](DESIGN.md), [source dataset notes](datasets/) and
@@ -184,10 +184,11 @@ field conventions.
 | Disease/phenotype nodes | 4,059 — 3,749 from indications, 310 only a trial reaches |
 | Release graph | 2,645,417 triples |
 
-See [`manifests/26.06-acceptance.md`](manifests/26.06-acceptance.md). Nineteen
-structural checks pass; the model-term review warns that 17 `sagebrain:` terms are
-not yet defined in sagebrain-model, which is the intended to-do list rather than a
-failure.
+See [`manifests/26.06-acceptance.md`](manifests/26.06-acceptance.md). Twenty
+structural checks pass, including that all 19 `biolink:` terms emitted are defined
+in the pinned 4.4.4 release. The model-term review warns that 17 `sagebrain:` terms
+are not yet defined in sagebrain-model, which is the intended to-do list rather than
+a failure.
 
 ## A trap worth knowing
 

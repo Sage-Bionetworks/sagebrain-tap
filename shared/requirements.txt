@@ -1,2 +1,3 @@
 boto3>=1.34
 pyoxigraph==0.5.4
+PyYAML>=6.0

@@ -1,7 +1,9 @@
 """Structural acceptance checks for a loaded Open Targets release graph.
 
-Reactome's contract, adapted: structural errors fail; the model-term review is a
-warning. Each check is a SPARQL query against the loaded graph rather than a
+Reactome's contract, adapted: structural errors fail; the sagebrain model-term
+review is a warning, and the biolink term check is a failure -- Biolink is
+published on a pinned version and is not ours to mint, so a term it does not
+define is wrong now rather than pending ratification. Each check is a SPARQL query against the loaded graph rather than a
 re-read of the Turtle, so what is verified is what a consumer will actually query.
 
 Checks 9 and 12 are this ingest's equivalent of Reactome's "NF1 across hierarchy
@@ -23,7 +25,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from shared import model_terms
+from shared import biolink_terms, model_terms
 from shared.oxigraph import GraphClient
 
 from .common import (
@@ -79,6 +81,11 @@ TRIAL_ANCHORS = [
 #: what catches a truncated trials.ttl, which load_graph cannot catch for itself
 #: -- it verifies the parts exist, not that they are whole.
 TRIPLE_RANGE = (1_500_000, 5_000_000)
+
+#: The LinkML schema whose ``settings.biolink_version`` pins the Biolink release
+#: to check against. Resolved from this file, not the working directory, so the
+#: check reads the same pin wherever the pipeline is run from.
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema" / "opentargets.yaml"
 
 
 @dataclass
@@ -148,7 +155,8 @@ def model_term_iris(client: GraphClient, graph: str) -> list[tuple[str, str]]:
 
 
 def run_checks(client: GraphClient, graph: str, release: str,
-               default_client: GraphClient | None = None) -> list[Check]:
+               default_client: GraphClient | None = None,
+               biolink_yaml: str | Path | None = None) -> list[Check]:
     checks: list[Check] = []
 
     # 1 -- every compound is typed and labelled.
@@ -414,11 +422,30 @@ def run_checks(client: GraphClient, graph: str, release: str,
                         f"outside {'/'.join(sorted(TRIAL_STOPPED_STATUSES))}, "
                         f"{multi_status} trial(s) without exactly one status"))
 
-    # 20 -- model terms. A warning: the model repo and this ingest move at
-    # different speeds, and so does the network.
-    review = model_terms.review(model_terms.counts_from_iris(
-        model_term_iris(client, graph)))
-    checks.append(Check(20, "Model terms defined in sagebrain-model", review.passed,
+    # 20-21 -- the two namespaces this graph uses, with OPPOSITE verdicts.
+    #
+    # One scan feeds both, so they cannot disagree about what the graph contains.
+    #
+    # biolink: is a published vocabulary on a version this repo pins, so a term
+    # it does not define is a typo or a term that moved between releases, and
+    # the graph is wrong NOW -- that fails. Two association classes rode several
+    # releases under names Biolink never had, so this is not hypothetical.
+    # Unreachable Biolink is still only a warning: better than passing quietly
+    # on no evidence, and not a reason to call a graph broken. The review's own
+    # `fatal` property draws that line, so this caller does not have to.
+    #
+    # sagebrain: is ours, and an unratified term is a to-do for the model repo
+    # rather than a defect -- that warns.
+    terms = model_term_iris(client, graph)
+
+    biolink = biolink_terms.review(biolink_terms.counts_from_iris(terms),
+                                   pin_from=SCHEMA_PATH, schema_yaml=biolink_yaml)
+    checks.append(Check(20, "Biolink terms defined in the pinned release",
+                        biolink.passed, biolink.detail, fatal=biolink.fatal,
+                        lines=biolink.lines()))
+
+    review = model_terms.review(model_terms.counts_from_iris(terms))
+    checks.append(Check(21, "Model terms defined in sagebrain-model", review.passed,
                         review.detail, fatal=False, lines=review.lines()))
     return checks
 
@@ -451,6 +478,11 @@ def main() -> int:
     parser.add_argument("--endpoint", default=None, help="SPARQL query URL instead")
     parser.add_argument("--manifest-dir", type=Path, default=Path("opentargets/manifests"))
     parser.add_argument("--report", type=Path, default=None)
+    parser.add_argument("--biolink-yaml", default=None,
+                        help="Read the Biolink schema from this file instead of "
+                             "downloading the pinned release -- for a working copy "
+                             "or an offline run. Without it, an unreachable Biolink "
+                             "downgrades check 20 to a warning.")
     args = parser.parse_args()
 
     graph = release_graph(args.release)
@@ -462,7 +494,8 @@ def main() -> int:
                                  endpoint=args.endpoint)
 
     log(f"Acceptance checks for <{graph}>")
-    checks = run_checks(client, graph, args.release, default_client)
+    checks = run_checks(client, graph, args.release, default_client,
+                        biolink_yaml=args.biolink_yaml)
     for check in checks:
         mark = "PASS" if check.passed else ("FAIL" if check.fatal else "WARN")
         log(f"  {check.number:>2}. [{mark}] {check.name}: {check.detail}")
