@@ -51,15 +51,19 @@ three it reads only to keep a documented claim checked (see below).
 | `url` | large_string | 100% | yes | no — derivable from `id` |
 | `title` | large_string | 100%, 270,022 distinct | no | no — see below |
 | `trialDescription` | large_string | 79.7% | no | no |
-| `trialStudyType` | large_string | 79.7%, 4 values | no | no |
-| `trialPrimaryPurpose` | large_string | 74.3%, 11 values | no | no |
-| `trialPhase` | large_string | 67.3%, 8 values | no | no |
-| `phaseFromSource` | large_string | 87.6%, 60 values | no | no |
+| `trialStudyType` | large_string | 79.7%, 3 values | no | no |
+| `trialPrimaryPurpose` | large_string | 74.3%, 10 values | no | no |
+| `trialPhase` | large_string | 67.3%, 7 values | no | no |
+| `phaseFromSource` | large_string | 87.6%, 59 values | no | no |
 | `trialNumberOfArms` | int32 | 69.4% | no | no |
 | `trialLiterature` | large_list | 83,501 non-empty, max 248 | no | no |
 | `countries` | large_list | 2,744 non-empty | no | no |
 | `sideEffects` | large_list\<struct\> | 2,744 non-empty | no | no |
 | `year` | int32 | 0.2% (561) | no | no |
+
+Value counts in this table are **non-null distinct values**. Arrow reports the
+null as a distinct entry and counting it inflates every partly-filled column by
+one; the fill percentage beside it already says how often the column is empty.
 
 **Three gated columns are read but never emitted.** Over the projected scope
 `source` is `AACT` on all 193,469 trials, `hasExpertReview` is false on all of them
@@ -107,7 +111,9 @@ approval. Different columns, different subjects, unrelated facts.
 directions: every row with `trialWhyStopped` has at least one category and no row
 has a category without text. A trial can carry up to three. Led by Insufficient_Enrollment
 (7,935), Business_Administrative (7,724), Negative (2,412), Study_Design (1,636),
-Safety_Sideeffects (926), Covid19 (804).
+Logistics_Resources (1,587) and Invalid_Reason (1,289); the tail is Another_Study
+(1,011), Safety_Sideeffects (926), Study_Staff_Moved (838), Covid19 (804),
+Regulatory (602), Uncategorised (528) and No_Context (241).
 
 All such rows are TERMINATED, WITHDRAWN or SUSPENDED — in scope, 15,460, 5,934 and
 482, summing to exactly the 21,876 stopped trials. Acceptance check 20 enforces
@@ -153,15 +159,18 @@ This is why `sagebrain:trial_start_date` is `xsd:gYearMonth`.
 
 **Its range is mostly legitimate.** Dates run 1900-01-31 to 2099-01-01, but 150 of the
 156 future starts are 2027–2030 and 121 of those are `NOT_YET_RECRUITING` — real
-planned trials. Only one 1900 row and four beyond 2040 are placeholders, nearly all on
-`WITHDRAWN` trials that never began. The 184 pre-1990 dates are genuine retrospective
-registrations, including NHLBI trials from the 1960s. The transform keeps 1950
-through ten years past the release, which at 26.06 drops exactly four in-scope rows
+planned trials. Just six rows fall outside 1950 through ten years past the release:
+`1900-01-31`, `1931-06-30`, `2040-01-01`, two at `2050-01-31` and `2099-01-01`, five
+of the six on `WITHDRAWN` or `NOT_YET_RECRUITING` trials that never began. The 184
+pre-1990 dates are genuine retrospective registrations, including NHLBI trials from
+the 1960s. The transform drops exactly the four of those six that are in scope
 (1931-06-30, 2040-01-01, 2050-01-31, 2099-01-01) into
-`reports/implausible_trial_dates.tsv` without touching a single planned start.
+`reports/implausible_trial_dates.tsv` without touching a single planned start; the
+1900-01-31 row and one of the 2050 rows never reach the check, because neither trial
+names a ChEMBL-resolved drug.
 
-**`phaseFromSource` is raw** — 60 variants mixing `PHASE2`, `phase 2`, `APPROVAL` and
-`investigative`. Use `trialPhase` (8 values) or `clinicalStage` (13).
+**`phaseFromSource` is raw** — 59 variants mixing `PHASE2`, `phase 2`, `APPROVAL` and
+`investigative`. Use `trialPhase` (7 values) or `clinicalStage` (13).
 
 **`countries`, `sideEffects` and `year` are effectively empty** — 2,744, 2,744 and 561
 rows. `countries` is also dirty, listing `United States` and ` United States` as

@@ -629,13 +629,16 @@ slots:
       release invented, and the datatype is what carries that claim.
 
       Range is checked separately from precision. Dates outside 1950 through ten
-      years past the release are dropped as placeholders (one 1931 row and three
-      beyond 2040, up to 2099-01-01, nearly all on trials that never began) and
-      listed in reports/implausible_trial_dates.tsv; the trial node is still
-      emitted, without a date. The window deliberately clears real planned starts:
-      150 trials begin in 2027-2030 and 121 of those are NOT_YET_RECRUITING. The
-      184 pre-1990 dates are genuine retrospective registrations, including NHLBI
-      trials from the 1960s.
+      years past the release are dropped as placeholders -- at 26.06 exactly four
+      in-scope rows, 1931-06-30, 2040-01-01, 2050-01-31 and 2099-01-01, three of
+      them on trials that never began -- and listed in
+      reports/implausible_trial_dates.tsv; the trial node is still emitted,
+      without a date. The window deliberately clears real planned starts: 114
+      in-scope trials begin in 2027-2030 and 92 of those are NOT_YET_RECRUITING.
+      The 169 in-scope pre-1990 dates are genuine retrospective registrations,
+      including NHLBI trials from the 1960s. All counts here are over the trials
+      this layer emits, which is what the window is applied to; across all 230,990
+      trials the same figures are 150, 121 and 184.
 
       Declared range string because LinkML has no gYearMonth type; the emitted
       literal is typed xsd:gYearMonth and acceptance check 19 enforces that.

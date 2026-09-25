@@ -139,9 +139,13 @@ def transform(input_dir: Path, out_path: Path,
                     check_vocabulary(stage, CLINICAL_STAGES,
                                      "maximumClinicalStage", "CLINICAL_STAGES")
                     # Deliberately NOT called maxClinicalStage: that name belongs to
-                    # the per-indication value, and this one is a maximum over all of
-                    # a molecule's indications. Conflating them is exactly the
-                    # flattening the indication caveat warns about.
+                    # the per-indication value. This one is the stage the source
+                    # supplies for the molecule itself -- NOT a rollup of this
+                    # graph's indication edges, and not derivable from them. 875
+                    # molecules hold a higher value than their edges imply and 1,276
+                    # carry a non-UNKNOWN stage with no edge at all. Conflating the
+                    # two is exactly the flattening the indication caveat warns
+                    # about.
                     pairs.append(("sagebrain:overall_clinical_stage", literal(stage)))
 
                 parent = (row.get("parentId") or "").strip()

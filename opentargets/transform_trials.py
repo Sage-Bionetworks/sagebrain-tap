@@ -34,11 +34,13 @@ Truncating is not a loss of information -- it is a refusal to assert a day the
 release invented.
 
 Range is a separate question from precision, and it is handled separately.
-Future dates are mostly real (150 trials start in 2027-2030, 121 of them
+Future dates are mostly real (114 in-scope trials start in 2027-2030, 92 of them
 `NOT_YET_RECRUITING`), so the window clears planned starts and catches only the
-placeholders: at 26.06, four in-scope trials, from 1931-06-30 to 2099-01-01. They
-are listed in `reports/implausible_trial_dates.tsv` and lose their date, not
-their node.
+placeholders: at 26.06, four in-scope trials -- 1931-06-30, 2040-01-01,
+2050-01-31 and 2099-01-01. They are listed in
+`reports/implausible_trial_dates.tsv` and lose their date, not their node. Two
+more out-of-window rows exist in the release and never reach this check, because
+the drug filter removed them first.
 
 ## Status is what makes a stop reason mean something
 
@@ -161,8 +163,18 @@ def _mapped_ids(entries, key: str) -> tuple[set[str], int]:
 
     Both `drugs` and `diseases` name the entity in free text and carry an
     ontology id only when the release resolved it. The unmapped mentions are
-    counted, never guessed at: 16.7% of drug mentions and 23.8% of disease
-    mentions have no id, and inventing one would be worse than the gap.
+    counted, never guessed at: inside the trials this layer emits, 16,474 of
+    356,755 drug mentions (4.6%) and 61,777 of 240,585 disease mentions (25.7%)
+    have no id, and inventing one would be worse than the gap.
+
+    Those are IN-SCOPE rates, which is what this function returns. Over the whole
+    dataset the figures are 16.7% and 23.8%, and the two move in opposite
+    directions: the drug rate falls sharply in scope (16.7% to 4.6%) because the
+    trials with no ChEMBL-resolved drug at all are exactly the ones the filter
+    removed, while the disease rate rises slightly (23.8% to 25.7%) because those
+    same excluded trials were, if anything, better mapped on the disease side.
+    Quoting the dataset-wide numbers here would overstate how dirty the emitted
+    trials are by more than threefold.
     """
     mapped: set[str] = set()
     unmapped = 0

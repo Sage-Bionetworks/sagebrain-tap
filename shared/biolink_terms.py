@@ -233,7 +233,7 @@ def load_model(version: str | None = None, schema_yaml: str | Path | None = None
 #: rdf:type scan misses `biolink:affects` and
 #: `biolink:treats_or_applied_or_studied_to_treat` entirely -- the two terms in
 #: the Open Targets graph whose choice is most argued over, and so the two least
-#: affordable to leave unchecked. It costs about 2s more on a 2.45M-triple
+#: affordable to leave unchecked. It costs about 2s more on a 2.6M-triple
 #: graph, which is the cheapest 2s in the suite.
 #:
 #: Subject position is left out deliberately: it adds another 1.8s and finds

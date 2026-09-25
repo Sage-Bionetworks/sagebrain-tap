@@ -19,9 +19,10 @@ claim.
 `maxClinicalStage` is a maximum over the reports behind one drug-disease pair, so
 it is a property of that pair. A drug that failed phase 3 for one disease and was
 approved for another has two different stages, and hoisting either onto the drug
-would erase the difference. `drug_molecule.maximumClinicalStage` -- the maximum
-over *all* of a drug's indications -- is emitted by `transform_molecules.py` under
-a deliberately different name for the same reason.
+would erase the difference. `drug_molecule.maximumClinicalStage` -- the stage the
+source supplies for the molecule itself, which is NOT a maximum over these edges
+and not derivable from them -- is emitted by `transform_molecules.py` under a
+deliberately different name for the same reason.
 
 The report count rides along as `sagebrain:clinical_report_count`: a stage backed by
 14 reports and one backed by a single record are not equally load-bearing, and the

@@ -474,15 +474,18 @@ DISEASE_IRI_BASES = {
 #: ``^NCT\d{8}$``, and Biolink's ``clinical trial`` class lists the same prefix.
 TRIAL_ID_PATTERN = re.compile(r"nct\d{8}", re.IGNORECASE)
 
-#: Earliest plausible trial start. The 184 pre-1990 dates in 26.06 are genuine
-#: retrospective registrations, including NHLBI trials from the 1960s, so the
-#: floor sits below them rather than at a round modern year.
+#: Earliest plausible trial start. The 169 in-scope pre-1990 dates in 26.06 (184
+#: across all trials) are genuine retrospective registrations, including NHLBI
+#: trials from the 1960s, so the floor sits below them rather than at a round
+#: modern year. In-scope counts, because in-scope rows are all this window ever
+#: sees.
 TRIAL_START_MIN_YEAR = 1950
 
 #: How far past a release a start date may sit before it reads as a placeholder.
-#: Future dates are mostly real -- 150 trials start in 2027-2030 and 121 of those
-#: are NOT_YET_RECRUITING -- so the ceiling has to clear planned starts while
-#: still catching 2099-01-01 on a trial that never began.
+#: Future dates are mostly real -- 114 in-scope trials start in 2027-2030 and 92
+#: of those are NOT_YET_RECRUITING (150 and 121 across all trials) -- so the
+#: ceiling has to clear planned starts while still catching 2099-01-01 on a trial
+#: that never began.
 TRIAL_START_FUTURE_YEARS = 10
 
 

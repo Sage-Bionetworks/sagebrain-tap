@@ -71,9 +71,14 @@ STAGE_NOTE = (
     "It is the maximum over the clinical reports behind that one pair, so a drug that "
     "failed phase 3 for one disease and was approved for another carries both values "
     "on different edges. Never quote a stage without its indication. The separate "
-    "sagebrain:overall_clinical_stage on a molecule is the maximum over ALL of its "
-    "indications and says nothing about any particular disease. Approval facts are "
-    "for specific indications and populations and are not treatment guidance."
+    "sagebrain:overall_clinical_stage on a molecule is the stage the SOURCE supplies "
+    "for that molecule, not a rollup of the edges in this graph and not derivable "
+    "from them: at 26.06, 875 molecules hold a HIGHER value than their own indication "
+    "edges imply, and 1,276 carry a non-UNKNOWN stage with no indication edge at all, "
+    "391 of those at APPROVAL. Computing it from the edges instead would drop 391 "
+    "approved drugs and understate 875 more. It says nothing about WHICH disease. "
+    "Approval facts are for specific indications and populations and are not "
+    "treatment guidance."
 )
 
 PREDICATE_NOTE = (

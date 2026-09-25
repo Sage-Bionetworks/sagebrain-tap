@@ -76,10 +76,11 @@ TRIAL_ANCHORS = [
      "MONDO_0006519", ("Negative", "Safety_Sideeffects")),
 ]
 
-#: Roughly half to twice the 26.06 release, which is 2.45M triples: 1.0M for the
-#: molecule/mechanism/indication layer and 1.45M for trials. The lower bound is
-#: what catches a truncated trials.ttl, which load_graph cannot catch for itself
-#: -- it verifies the parts exist, not that they are whole.
+#: Roughly half to twice the 26.06 release, which is 2,645,418 triples:
+#: 1,005,961 for the molecule/mechanism/indication layer and 1,639,457 for
+#: trials. The lower bound is what catches a truncated trials.ttl, which
+#: load_graph cannot catch for itself -- it verifies the parts exist, not that
+#: they are whole.
 TRIPLE_RANGE = (1_500_000, 5_000_000)
 
 #: The LinkML schema whose ``settings.biolink_version`` pins the Biolink release

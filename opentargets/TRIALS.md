@@ -36,15 +36,19 @@ value is `YYYY-MM` and normalisation supplies the day. Across all trials 57.7% l
 the first or last of a month, where a uniform spread would give about 6.6%. Truncating
 to year-month asserts only what the release actually carries.
 
-Range is a separate check from precision, and future dates are mostly real: 150 trials
-start in 2027–2030, 121 of them `NOT_YET_RECRUITING`. Only a handful are placeholders —
-one 1900-01-31 row and four beyond 2040, up to 2099-01-01, nearly all on `WITHDRAWN`
-trials that never began. Dates outside 1950 through ten years past the release are
-dropped, which at 26.06 isolates exactly four in-scope rows without discarding planned
-starts; they go to `reports/implausible_trial_dates.tsv` and the trial node is still
-emitted. The 184 pre-1990 dates are genuine retrospective registrations, including
-NHLBI trials from the 1960s. Above 1% of dated trials the run fails instead, because
-at that rate the date scheme changed rather than a few rows being wrong.
+Range is a separate check from precision, and future dates are mostly real: 114
+in-scope trials start in 2027–2030, 92 of them `NOT_YET_RECRUITING` (150 and 121
+across all trials). Only a handful are placeholders. Dates outside 1950 through ten
+years past the release are dropped, which at 26.06 isolates exactly four in-scope
+rows — `1931-06-30`, `2040-01-01`, `2050-01-31` and `2099-01-01`, three of the four
+on `WITHDRAWN` trials that never began — without discarding a single planned start.
+They go to `reports/implausible_trial_dates.tsv` and the trial node is still emitted.
+Two further out-of-window rows exist in the release and never reach the check, because
+the drug filter already removed them: a 1900-01-31 `WITHDRAWN` trial and a second
+2050-01-31. The 169 in-scope pre-1990 dates (184 across all trials) are genuine
+retrospective registrations, including NHLBI trials from the 1960s. Above 1% of dated
+trials the run fails instead, because at that rate the date scheme changed rather than
+a few rows being wrong.
 
 **Diseases.** Trials reference 3,841 terms, 310 of which no indication references
 (184 MONDO, 59 HP, 56 EFO, 4 OBA, 4 GO, 3 Orphanet). Those nodes are emitted too,
@@ -126,7 +130,7 @@ carries, because the source collapses phase 4 into `APPROVAL` at the compound le
 
 `countries` and `sideEffects` are filled on 2,744 rows each and `year` on 561;
 `countries` is also dirty, listing `United States` and ` United States` as separate
-values. `phaseFromSource` holds 60 unnormalised variants mixing `PHASE2`, `phase 2`
+values. `phaseFromSource` holds 59 unnormalised variants mixing `PHASE2`, `phase 2`
 and `investigative` — read `trialPhase` or `clinicalStage` instead.
 
 `source`, `hasExpertReview` and `url` are gated and **read** but not emitted, because
