@@ -58,6 +58,7 @@ from .common import (
     TurtleWriter,
     check_vocabulary,
     chembl_curie,
+    described_molecule_ids,
     disease_curie,
     expand,
     iri,
@@ -66,6 +67,7 @@ from .common import (
     log,
     read_dataset,
     typed_literal,
+    write_compound_stubs,
     write_disease_nodes,
 )
 
@@ -76,9 +78,11 @@ XSD_INTEGER = "xsd:integer"
 
 def transform(input_dir: Path, out_path: Path) -> dict:
     disease_labels = load_disease_labels(input_dir)
+    described = described_molecule_ids(input_dir)
     data = read_dataset(input_dir, "clinical_indication", INDICATION_COLUMNS)
     stats = {"rows": 0, "edges": 0, "duplicate_edges": 0, "drugs": 0, "diseases": 0,
-             "approval_edges": 0, "unlabelled_diseases": 0, "triples": 0}
+             "approval_edges": 0, "unlabelled_diseases": 0,
+             "undescribed_drugs": 0, "triples": 0}
     edges: set[tuple] = set()
     referenced: set[str] = set()
     drugs: set[str] = set()
@@ -137,6 +141,13 @@ def transform(input_dir: Path, out_path: Path) -> dict:
         stats["unlabelled_diseases"] = write_disease_nodes(
             writer, referenced, disease_labels)
 
+        writer.comment(
+            "Compounds an indication names that drug_molecule does not describe.\n"
+            "Typed but unlabelled, so the edge reaches a node rather than an IRI\n"
+            "with no triples -- see write_compound_stubs in common.py.")
+        stubs = write_compound_stubs(writer, drugs, described)
+        stats["undescribed_drugs"] = len(stubs)
+
         stats["diseases"] = len(referenced)
         stats["drugs"] = len(drugs)
         stats["triples"] = writer.triples
@@ -147,6 +158,10 @@ def transform(input_dir: Path, out_path: Path) -> dict:
     log(f"  {stats['drugs']:,} drugs x {stats['diseases']:,} diseases; "
         f"{stats['approval_edges']:,} at APPROVAL")
     log(f"  top stages: {', '.join(f'{s}={c:,}' for s, c in top)}")
+    if stats["undescribed_drugs"]:
+        log(f"  {stats['undescribed_drugs']} referenced compound(s) have no row in "
+            f"drug_molecule, emitted typed but unlabelled: "
+            f"{', '.join(stubs)}")
     if stats["unlabelled_diseases"]:
         log(f"  {stats['unlabelled_diseases']} referenced term(s) have no label in "
             f"the release's disease dataset")

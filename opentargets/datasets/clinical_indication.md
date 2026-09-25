@@ -53,6 +53,15 @@ being studied, not one that treats.
 Labels and synonyms for the 3,749 referenced terms come from
 [`disease`](disease.md).
 
+One `drugId` — `CHEMBL453514`, an APPROVAL for MONDO_0005113 — has no row in
+[`drug_molecule`](drug_molecule.md). Without help the edge would point at an IRI
+carrying no triples at all, so a query joining indications to compound labels
+would return one approval fewer and report no error. It is emitted as a typed but
+unlabelled `biolink:ChemicalEntity` stub, the same treatment a disease term the
+release does not describe already gets; the absent `sagebrain:drug_type` is how a
+consumer tells a stub from a described molecule, and acceptance check 4 asserts
+that no association subject is left untyped.
+
 ## Quirks
 
 **Report IDs are counted, not emitted.** `clinicalReportIds` becomes

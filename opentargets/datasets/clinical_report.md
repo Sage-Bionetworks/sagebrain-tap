@@ -110,7 +110,7 @@ has a category without text. A trial can carry up to three. Led by Insufficient_
 Safety_Sideeffects (926), Covid19 (804).
 
 All such rows are TERMINATED, WITHDRAWN or SUSPENDED — in scope, 15,460, 5,934 and
-482, summing to exactly the 21,876 stopped trials. Acceptance check 19 enforces
+482, summing to exactly the 21,876 stopped trials. Acceptance check 20 enforces
 that rather than trusting it, because a stop reason on a COMPLETED trial would mean
 the two columns had come apart and the free text was describing something else.
 

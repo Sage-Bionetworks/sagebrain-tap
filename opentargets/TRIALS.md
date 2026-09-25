@@ -68,7 +68,7 @@ Every trial also carries `trialOverallStatus`, which is what makes a stop reason
 mean something: all 21,876 sit on `TERMINATED` (15,460), `WITHDRAWN` (5,934) or
 `SUSPENDED` (482), and a `Negative` category on a trial that halted midway is not
 the same claim as one on a trial that never enrolled a participant. That pairing
-is checked rather than assumed (acceptance check 19).
+is checked rather than assumed (acceptance check 20).
 `qualityControls` has four values, of which only `PHASE_IV_NOT_APPROVED` and
 `INDIRECT_PRIMARY_PURPOSE` gate `clinical_indication`; emitting all four lets a
 consumer reproduce or relax that filter.
@@ -118,7 +118,7 @@ range lie, so the last three are local and say why.
 
 `sagebrain:trial_clinical_stage` is a **third** stage slot, and the narrowest:
 `max_clinical_stage` scopes to a drug–disease pair, `overall_clinical_stage` to a
-molecule, and this to one trial. Acceptance check 10 fails if any subject carries
+molecule, and this to one trial. Acceptance check 11 fails if any subject carries
 two of them. 28,465 trials are `PHASE_4`, a value no other slot in the graph
 carries, because the source collapses phase 4 into `APPROVAL` at the compound level.
 

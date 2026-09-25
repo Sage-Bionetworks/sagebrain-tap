@@ -289,7 +289,7 @@ def transform(input_dir: Path, out_path: Path, reports_dir: Path,
                         # Counted rather than raised: the two columns coming apart
                         # would make the free text describe something other than a
                         # stop, and that is a finding about the release, not a
-                        # reason to refuse it. Acceptance check 19 is the gate.
+                        # reason to refuse it. Acceptance check 20 is the gate.
                         stats["stopped_on_unexpected_status"] += 1
                     pairs.append(("sagebrain:trial_stop_reason", literal(why_stopped)))
                 for category in categories:

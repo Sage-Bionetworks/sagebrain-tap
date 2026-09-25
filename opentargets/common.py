@@ -684,6 +684,39 @@ def write_disease_nodes(writer: "TurtleWriter", disease_ids, labels: dict[str, d
     return unlabelled
 
 
+def described_molecule_ids(input_dir: Path) -> set[str]:
+    """Every ChEMBL id ``drug_molecule`` actually describes."""
+    data = read_dataset(input_dir, "drug_molecule", ["id"])
+    column = data.to_table(columns=["id"]).column("id")
+    return {value.strip() for value in column.to_pylist() if value}
+
+
+def write_compound_stubs(writer: "TurtleWriter", chembl_ids, described: set[str]) -> list[str]:
+    """Type any referenced compound ``drug_molecule`` does not describe.
+
+    The same rule ``write_disease_nodes`` applies on the disease side: an
+    association pointing at something the release does not describe is a
+    dangling reference upstream, and it is emitted anyway -- typed but
+    unlabelled -- so it is visible rather than silently absent.
+
+    One case at 26.06: CHEMBL453514, the subject of an APPROVAL indication for
+    MONDO_0005113, has no row in ``drug_molecule``. Without this it was an IRI
+    with no triples at all, so a query joining indications to compound labels
+    dropped an approval on the floor and returned one fewer row rather than an
+    error.
+
+    ``biolink:ChemicalEntity`` and no ``sagebrain:drug_type``, because the
+    modality is exactly what is missing -- the supertype is what is known, and
+    the absent slot is how a consumer tells a stub from a described molecule.
+    Returns the ids stubbed, so the caller can report them.
+    """
+    missing = sorted(set(chembl_ids) - described)
+    for chembl_id in missing:
+        writer.statements(iri(expand(chembl_curie(chembl_id))),
+                          [("a", DRUG_TYPE_CLASS_DEFAULT)])
+    return missing
+
+
 # ── Ensembl -> HGNC ───────────────────────────────────────────────────────────
 
 

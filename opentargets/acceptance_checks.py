@@ -52,7 +52,7 @@ PREFIX void: <http://rdfs.org/ns/void#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 """
 
-#: Facts a correct 26.06 ingest must contain (check 9). Compound label, the
+#: Facts a correct 26.06 ingest must contain (check 10). Compound label, the
 #: mechanism target it must reach, and an indication it must carry.
 DEMO_ANCHORS = [
     ("trametinib", "MAP2K1", None, None),
@@ -65,7 +65,7 @@ DEMO_ANCHORS = [
     ("selumetinib", "MAP2K2", "MONDO_0017827", "PHASE_2"),
 ]
 
-#: Facts the trial layer must carry (check 12). Trial accession, its stage, overall
+#: Facts the trial layer must carry (check 13). Trial accession, its stage, overall
 #: status, the month it started, a drug it tests and a disease it studies -- and for
 #: the second, the stop-reason categories, because a maximum clinical stage is
 #: exactly the thing that cannot record that a phase-1 trial halted on toxicity.
@@ -118,6 +118,25 @@ def _distinct(client: GraphClient, graph: str, variable: str, where: str) -> int
     row = _one(client, f"SELECT (COUNT(DISTINCT ?{variable}) AS ?n) "
                        f"WHERE {{ GRAPH <{graph}> {{ {where} }} }}")
     return int(row["n"]["value"]) if row else 0
+
+
+#: Association subjects that are not typed nodes (check 4).
+#:
+#: Kept as a named constant so the query is testable on a graph built to break
+#: it. A dangling subject is invisible by construction -- the association still
+#: loads, and a consumer joining to compound labels just gets one row fewer --
+#: so a check that could not fail here would be worth nothing.
+UNTYPED_SUBJECTS = """
+    { ?a a biolink:ChemicalAffectsGeneAssociation }
+    UNION
+    { ?a a biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation }
+    ?a biolink:subject ?s .
+    FILTER NOT EXISTS { ?s a ?class }"""
+
+
+def count_in_graph(client: GraphClient, graph: str, where: str) -> int:
+    """Public alias of the internal counter, for tests against a small graph."""
+    return _count(client, graph, where)
 
 
 def model_term_iris(client: GraphClient, graph: str) -> list[tuple[str, str]]:
@@ -190,12 +209,33 @@ def run_checks(client: GraphClient, graph: str, release: str,
                         f"{indications:,} indication edges, {dangling_disease} with no "
                         f"typed node"))
 
-    # 4-6 -- controlled vocabularies, verified in the GRAPH rather than the source.
+    # 4 -- the SUBJECT side of every association, which nothing checked.
+    #
+    # Checks 1-3 look at compounds that already carry drug_type and at the
+    # object side of each association. Between them they never asked whether an
+    # association's subject is a node at all, so a compound referenced but never
+    # emitted was invisible: at 26.06 CHEMBL453514 was the subject of an APPROVAL
+    # indication and had zero triples describing it. A query joining indications
+    # to compound labels silently returned one row fewer -- no error, no warning,
+    # just a missing approval. Compounds this ingest cannot describe are now
+    # stubbed (see write_compound_stubs), so the invariant is that every
+    # association endpoint is a typed node and this can be fatal at zero.
+    dangling_subjects = _count(client, graph, UNTYPED_SUBJECTS)
+    stubs = _count(client, graph, """
+        ?a biolink:subject ?s . ?s a biolink:ChemicalEntity .
+        FILTER NOT EXISTS { ?s sagebrain:drug_type ?d }""")
+    subjects = _distinct(client, graph, "s", "?a biolink:subject ?s")
+    checks.append(Check(4, "Association subjects are typed compounds",
+                        dangling_subjects == 0,
+                        f"{subjects:,} distinct subjects, {dangling_subjects} untyped; "
+                        f"{stubs} stubbed for having no drug_molecule row"))
+
+    # 5-7 -- controlled vocabularies, verified in the GRAPH rather than the source.
     for number, name, predicate, allowed, constant in (
-        (4, "Clinical stages", "sagebrain:max_clinical_stage",
+        (5, "Clinical stages", "sagebrain:max_clinical_stage",
          CLINICAL_STAGES, "CLINICAL_STAGES"),
-        (5, "Action types", "sagebrain:action_type", ACTION_TYPES, "ACTION_TYPES"),
-        (6, "Target types", "sagebrain:target_type", TARGET_TYPES, "TARGET_TYPES"),
+        (6, "Action types", "sagebrain:action_type", ACTION_TYPES, "ACTION_TYPES"),
+        (7, "Target types", "sagebrain:target_type", TARGET_TYPES, "TARGET_TYPES"),
     ):
         observed = set(_values(client, f"""
             SELECT DISTINCT ?v WHERE {{ GRAPH <{graph}> {{ ?s {predicate} ?v }} }}""", "v"))
@@ -205,7 +245,7 @@ def run_checks(client: GraphClient, graph: str, release: str,
                             if not unknown else
                             f"not in {constant}: {', '.join(unknown)}"))
 
-    # 7 -- genes are HGNC-keyed and carry exactly one taxon.
+    # 8 -- genes are HGNC-keyed and carry exactly one taxon.
     non_hgnc = _count(client, graph, """
         ?g a biolink:Gene .
         FILTER(!STRSTARTS(STR(?g), "https://identifiers.org/hgnc:"))""")
@@ -213,12 +253,12 @@ def run_checks(client: GraphClient, graph: str, release: str,
         SELECT ?g WHERE {{ GRAPH <{graph}> {{ ?g a biolink:Gene ; biolink:in_taxon ?t }} }}
         GROUP BY ?g HAVING(COUNT(DISTINCT ?t) != 1)""", "g"))
     genes = _distinct(client, graph, "g", "?g a biolink:Gene")
-    checks.append(Check(7, "Genes HGNC-keyed with one taxon",
+    checks.append(Check(8, "Genes HGNC-keyed with one taxon",
                         non_hgnc == 0 and multi_taxon == 0,
                         f"{genes:,} gene nodes; {non_hgnc} not HGNC-keyed, "
                         f"{multi_taxon} without exactly one taxon"))
 
-    # 8 -- graph size, and the loader's own void:triples assertion agrees with it.
+    # 9 -- graph size, and the loader's own void:triples assertion agrees with it.
     total = _count(client, graph, "?s ?p ?o")
     # VoID is in the DEFAULT graph, while `client` is scoped to the release graph,
     # so asking `client` for it silently returns nothing and the comparison below
@@ -233,13 +273,13 @@ def run_checks(client: GraphClient, graph: str, release: str,
     # from the Turtle by line, the graph count is after RDF deduplication, so they
     # can differ legitimately when a transform emits the same triple twice.
     agrees = declared is None or abs(declared - total) <= total * 0.01
-    checks.append(Check(8, "Release size", size_ok and agrees,
+    checks.append(Check(9, "Release size", size_ok and agrees,
                         f"{total:,} triples (expected {low:,}-{high:,}); "
                         f"void:triples asserts {declared:,}"
                         f"{'' if agrees else ' -- DIFFERS by more than 1%'}"
                         if declared is not None else f"{total:,} triples, no void:triples"))
 
-    # 9 -- the facts downstream work depends on.
+    # 10 -- the facts downstream work depends on.
     missing: list[str] = []
     for label, symbol, disease, stage in DEMO_ANCHORS:
         found = _count(client, graph, f"""
@@ -258,11 +298,11 @@ def run_checks(client: GraphClient, graph: str, release: str,
                    sagebrain:max_clinical_stage "{stage}" .""")
             if not found:
                 missing.append(f"{label} -> {disease} at {stage} (indication)")
-    checks.append(Check(9, "Known facts present", not missing,
+    checks.append(Check(10, "Known facts present", not missing,
                         f"all {len(DEMO_ANCHORS)} anchors present" if not missing
                         else f"{len(missing)} missing", lines=missing))
 
-    # 10 -- the THREE clinical-stage slots must never land on the same subject.
+    # 11 -- the THREE clinical-stage slots must never land on the same subject.
     # They are different facts -- one per drug-disease edge, one per molecule, one
     # per trial -- and keeping them apart is the whole reason they are named
     # differently. A subject carrying two would mean a transform started
@@ -285,13 +325,13 @@ def run_checks(client: GraphClient, graph: str, release: str,
                        f"?s {slot} ?v . FILTER NOT EXISTS {{ {typing} }}")
         if stray:
             misplaced.append(f"{stray:,} {slot} value(s) off {belongs_on}")
-    checks.append(Check(10, "Clinical-stage slots kept apart",
+    checks.append(Check(11, "Clinical-stage slots kept apart",
                         shared_subjects == 0 and not misplaced,
                         f"{shared_subjects} subject(s) carry more than one of the "
                         f"three slots; " + ("; ".join(misplaced) if misplaced
                                             else "each slot only on its own subjects")))
 
-    # 11 -- trial nodes are registry-keyed, typed and staged.
+    # 12 -- trial nodes are registry-keyed, typed and staged.
     #
     # Keyed on the accession rather than on anything this ingest mints, for the
     # same reason genes are HGNC-keyed: a trial node has to be the same node next
@@ -307,13 +347,13 @@ def run_checks(client: GraphClient, graph: str, release: str,
     # the transform refuses to substitute the release's generated stand-in.
     unlabelled_trials = _count(client, graph, """
         ?t a biolink:ClinicalTrial . FILTER NOT EXISTS { ?t rdfs:label ?l }""")
-    checks.append(Check(11, "Trials registry-keyed and staged",
+    checks.append(Check(12, "Trials registry-keyed and staged",
                         non_registry == 0 and unstaged == 0,
                         f"{trials:,} trial nodes; {non_registry} not NCT-keyed, "
                         f"{unstaged} without a stage, {unlabelled_trials:,} without a "
                         f"registry title (expected -- not substituted)"))
 
-    # 12 -- the trial facts downstream work depends on, the counterpart of check 9.
+    # 13 -- the trial facts downstream work depends on, the counterpart of check 10.
     missing_trials: list[str] = []
     for accession, stage, status, start, drug, disease, categories in TRIAL_ANCHORS:
         trial = f"<https://identifiers.org/clinicaltrials:{accession}>"
@@ -335,12 +375,12 @@ def run_checks(client: GraphClient, graph: str, release: str,
         for what, where in required:
             if not _count(client, graph, where):
                 missing_trials.append(f"{accession}: {what}")
-    checks.append(Check(12, "Known trial facts present", not missing_trials,
+    checks.append(Check(13, "Known trial facts present", not missing_trials,
                         f"all {len(TRIAL_ANCHORS)} trial anchors complete"
                         if not missing_trials else f"{len(missing_trials)} missing",
                         lines=missing_trials))
 
-    # 13 -- a trial's drug and disease links must reach nodes this ingest asserted.
+    # 14 -- a trial's drug and disease links must reach nodes this ingest asserted.
     # This is what verifies the disease pass really widened: 310 terms reach the
     # graph only because a trial names them, and indications.ttl emits none of them.
     dangling_drugs = _count(client, graph, """
@@ -352,21 +392,21 @@ def run_checks(client: GraphClient, graph: str, release: str,
           UNION { ?d a biolink:DiseaseOrPhenotypicFeature } }""")
     drug_links = _count(client, graph, "?t sagebrain:trial_drug ?c")
     condition_links = _count(client, graph, "?t biolink:clinical_trial_conditions ?d")
-    checks.append(Check(13, "Trial links resolve to compound and disease nodes",
+    checks.append(Check(14, "Trial links resolve to compound and disease nodes",
                         dangling_drugs == 0 and dangling_conditions == 0,
                         f"{drug_links:,} trial-drug and {condition_links:,} "
                         f"trial-condition links; {dangling_drugs} and "
                         f"{dangling_conditions} dangling"))
 
-    # 14 -- the trial layer's own vocabularies, verified in the graph.
+    # 15 -- the trial layer's own vocabularies, verified in the graph.
     for number, name, predicate, allowed, constant in (
-        (14, "Trial stages", "sagebrain:trial_clinical_stage",
+        (15, "Trial stages", "sagebrain:trial_clinical_stage",
          CLINICAL_STAGES, "CLINICAL_STAGES"),
-        (15, "Trial stop-reason categories", "sagebrain:trial_stop_reason_category",
+        (16, "Trial stop-reason categories", "sagebrain:trial_stop_reason_category",
          TRIAL_STOP_REASON_CATEGORIES, "TRIAL_STOP_REASON_CATEGORIES"),
-        (16, "Report quality controls", "sagebrain:trial_quality_control",
+        (17, "Report quality controls", "sagebrain:trial_quality_control",
          REPORT_QUALITY_CONTROLS, "REPORT_QUALITY_CONTROLS"),
-        (17, "Trial overall statuses", "biolink:clinical_trial_overall_status",
+        (18, "Trial overall statuses", "biolink:clinical_trial_overall_status",
          TRIAL_OVERALL_STATUSES, "TRIAL_OVERALL_STATUSES"),
     ):
         observed = set(_values(client, f"""
@@ -377,7 +417,7 @@ def run_checks(client: GraphClient, graph: str, release: str,
                             if not unknown else
                             f"not in {constant}: {', '.join(unknown)}"))
 
-    # 18 -- start dates carry month precision and a plausible year.
+    # 19 -- start dates carry month precision and a plausible year.
     #
     # Two separate claims, checked separately because they fail separately. The
     # datatype is the precision claim: an xsd:date here would assert a day the
@@ -392,12 +432,12 @@ def run_checks(client: GraphClient, graph: str, release: str,
         BIND(xsd:integer(SUBSTR(STR(?d), 1, 4)) AS ?year)
         FILTER(?year < {earliest} || ?year > {latest})""")
     dated = _count(client, graph, "?t sagebrain:trial_start_date ?d")
-    checks.append(Check(18, "Trial start dates are gYearMonth in range",
+    checks.append(Check(19, "Trial start dates are gYearMonth in range",
                         wrong_datatype == 0 and out_of_range == 0,
                         f"{dated:,} start dates; {wrong_datatype} not gYearMonth, "
                         f"{out_of_range} outside {earliest}-{latest}"))
 
-    # 19 -- a stop reason only makes sense on a trial that stopped.
+    # 20 -- a stop reason only makes sense on a trial that stopped.
     #
     # Status and stop reason are separate columns, and this is the claim that
     # ties them: at 26.06 all 21,876 stop reasons sit on TERMINATED, WITHDRAWN or
@@ -416,13 +456,13 @@ def run_checks(client: GraphClient, graph: str, release: str,
           ?t a biolink:ClinicalTrial ; biolink:clinical_trial_overall_status ?s }} }}
         GROUP BY ?t HAVING(COUNT(DISTINCT ?s) != 1)""", "t"))
     stopped = _count(client, graph, "?t sagebrain:trial_stop_reason ?r")
-    checks.append(Check(19, "Stop reasons only on stopped trials",
+    checks.append(Check(20, "Stop reasons only on stopped trials",
                         stray_reasons == 0 and multi_status == 0,
                         f"{stopped:,} stop reasons; {stray_reasons} on a status "
                         f"outside {'/'.join(sorted(TRIAL_STOPPED_STATUSES))}, "
                         f"{multi_status} trial(s) without exactly one status"))
 
-    # 20-21 -- the two namespaces this graph uses, with OPPOSITE verdicts.
+    # 21-22 -- the two namespaces this graph uses, with OPPOSITE verdicts.
     #
     # One scan feeds both, so they cannot disagree about what the graph contains.
     #
@@ -440,12 +480,12 @@ def run_checks(client: GraphClient, graph: str, release: str,
 
     biolink = biolink_terms.review(biolink_terms.counts_from_iris(terms),
                                    pin_from=SCHEMA_PATH, schema_yaml=biolink_yaml)
-    checks.append(Check(20, "Biolink terms defined in the pinned release",
+    checks.append(Check(21, "Biolink terms defined in the pinned release",
                         biolink.passed, biolink.detail, fatal=biolink.fatal,
                         lines=biolink.lines()))
 
     review = model_terms.review(model_terms.counts_from_iris(terms))
-    checks.append(Check(21, "Model terms defined in sagebrain-model", review.passed,
+    checks.append(Check(22, "Model terms defined in sagebrain-model", review.passed,
                         review.detail, fatal=False, lines=review.lines()))
     return checks
 
@@ -482,7 +522,7 @@ def main() -> int:
                         help="Read the Biolink schema from this file instead of "
                              "downloading the pinned release -- for a working copy "
                              "or an offline run. Without it, an unreachable Biolink "
-                             "downgrades check 20 to a warning.")
+                             "downgrades check 21 to a warning.")
     args = parser.parse_args()
 
     graph = release_graph(args.release)

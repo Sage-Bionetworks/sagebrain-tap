@@ -148,12 +148,12 @@ be defined in the pinned release — it is a published vocabulary, not ours to
 mint, so an undefined term is a typo or a term that moved and the graph is wrong
 now. That is the opposite verdict from a `sagebrain:` term, which only warns.
 Two association classes were carried for several releases under names Biolink
-never had; see the note in the schema. Acceptance check 20 now enforces this
+never had; see the note in the schema. Acceptance check 21 now enforces this
 against the release named by `settings.biolink_version`, so it cannot recur
 silently.
 [schema/opentargets.yaml](../schema/opentargets.yaml) defines the model. Namespace bases are in [shared/rdf.py](../shared/rdf.py) and
 [common.py](common.py). `sagebrain:` is the only local namespace; acceptance
-check 18 reports terms not yet defined in sagebrain-model.
+check 22 reports terms not yet defined in sagebrain-model.
 
 Mechanisms and indications are association nodes, with typed endpoints and
 `infores:open-targets` provenance. Here, “edge” refers to an association record.
@@ -249,7 +249,7 @@ The three clinical-stage properties have different scopes, narrowest last:
 
 The molecule's stage is copied from the source, not computed from this graph's
 indications. It does not identify a disease and is not ChEMBL's numeric `max_phase`.
-Acceptance check 10 fails if any subject carries more than one of the three, which
+Acceptance check 11 fails if any subject carries more than one of the three, which
 is the failure mode that would produce a plausible wrong answer rather than an
 obvious one.
 
@@ -277,10 +277,12 @@ Ten vocabularies are audited in total. Integrity failures, unpinned inputs,
 excessive unresolved target lookups and more than 1% implausible trial start dates
 also stop the pipeline.
 
-[acceptance_checks.py](acceptance_checks.py) runs twenty-one checks on the loaded
+[acceptance_checks.py](acceptance_checks.py) runs twenty-two checks on the loaded
 graph:
 
-- Compound typing and labels; typed gene and disease/phenotype objects.
+- Compound typing and labels; typed gene and disease/phenotype objects; typed
+  compound SUBJECTS, which nothing asserted until a referenced-but-undescribed
+  compound turned up carrying an APPROVAL indication and no node at all.
 - Indication stages, action types and target types against their vocabularies.
 - HGNC gene identifiers and taxon cardinality.
 - Release size within `TRIPLE_RANGE`; agreement within 1% with `void:triples`

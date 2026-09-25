@@ -15,7 +15,11 @@ from shared import biolink_terms
 from shared.model_terms import counts_from_iris
 from shared.oxigraph import GraphClient, load_oxigraph
 
-from opentargets.acceptance_checks import model_term_iris
+from opentargets.acceptance_checks import (
+    UNTYPED_SUBJECTS,
+    count_in_graph,
+    model_term_iris,
+)
 from opentargets.common import release_graph
 
 TURTLE = """
@@ -33,6 +37,14 @@ TURTLE = """
     sagebrain:drug_type "Small molecule" .
 
 [] biolink:predicate sagebrain:minted_value .
+
+# One association whose subject IS a node, and one whose subject is only ever
+# referenced -- the shape that hid an APPROVAL indication for CHEMBL453514.
+[] a biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation ;
+   biolink:subject <https://identifiers.org/chembl:CHEMBL1> .
+
+[] a biolink:ChemicalOrDrugOrTreatmentToDiseaseOrPhenotypicFeatureAssociation ;
+   biolink:subject <https://identifiers.org/chembl:CHEMBL_NOWHERE> .
 """
 
 VOID = """
@@ -105,6 +117,30 @@ classes:
 slots:
   clinical trial conditions: {}
 """
+
+
+class UntypedSubjectTests(unittest.TestCase):
+    """An association subject that was never emitted as a node.
+
+    Checks 1-3 look at compounds that already carry drug_type and at the OBJECT
+    side of each association, so between them they never asked whether a subject
+    is a node at all. The association still loads and a consumer joining to
+    compound labels just returns one row fewer -- no error, no warning.
+    """
+
+    def test_a_subject_with_no_node_is_counted(self):
+        graph = ModelTermScanTests.graph
+        client = ModelTermScanTests.client
+        self.assertEqual(count_in_graph(client, graph, UNTYPED_SUBJECTS), 1)
+
+    def test_a_subject_that_is_a_typed_node_is_not_counted(self):
+        """CHEMBL1 is typed in the fixture, so only the other one is reported --
+        the check counts dangling subjects, not all of them."""
+        graph = ModelTermScanTests.graph
+        client = ModelTermScanTests.client
+        total = count_in_graph(client, graph,
+                               "?a biolink:subject ?s")
+        self.assertEqual(total, 2)
 
 
 class BiolinkTermVerdictTests(unittest.TestCase):

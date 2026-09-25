@@ -28,7 +28,7 @@ default_range: string
 prefixes:
   # One model namespace, owned by ontology/main/sagebrain.ttl in the
   # sagebrain-model repo. A term this ingest needs before the model has ratified
-  # it is minted here anyway and reported by acceptance check 18.
+  # it is minted here anyway and reported by acceptance check 22.
   # See shared/rdf.py NAMESPACES and opentargets/common.py PREFIXES.
   sagebrain: https://w3id.org/synapse/sagebrain#
   linkml: https://w3id.org/linkml/
@@ -107,7 +107,7 @@ enums:
 
       Three slots carry values from this enum and they are NOT interchangeable:
       max_clinical_stage scopes to a drug-disease pair, overall_clinical_stage to a
-      molecule, and trial_clinical_stage to one trial. Acceptance check 10 fails if
+      molecule, and trial_clinical_stage to one trial. Acceptance check 11 fails if
       any subject carries more than one of them.
 
       CLINICAL_STAGE_ORDER in opentargets/common.py orders the development axis so
@@ -335,7 +335,7 @@ enums:
       Status is what makes a stop reason interpretable. All 21,876 stop reasons in
       the release sit on TERMINATED (15,460), WITHDRAWN (5,934) or SUSPENDED (482),
       and "Negative" means something different on a trial that halted midway than
-      on one that never enrolled a participant. Acceptance check 19 enforces that
+      on one that never enrolled a participant. Acceptance check 20 enforces that
       pairing rather than trusting it.
 
       Note the overlap in spelling with ClinicalStageEnum: WITHDRAWN here is a
@@ -593,7 +593,7 @@ slots:
 
       Named trial_ rather than clinical_stage for the reason overall_clinical_stage
       is named that way: three slots whose confusion yields a plausible wrong answer
-      need more than a few characters between them. Acceptance check 10 fails if any
+      need more than a few characters between them. Acceptance check 11 fails if any
       subject carries two of the three.
 
       NOT biolink:clinical_trial_phase, whose range ResearchPhaseEnum is a different
@@ -638,7 +638,7 @@ slots:
       trials from the 1960s.
 
       Declared range string because LinkML has no gYearMonth type; the emitted
-      literal is typed xsd:gYearMonth and acceptance check 17 enforces that.
+      literal is typed xsd:gYearMonth and acceptance check 19 enforces that.
       biolink:clinical_trial_start_date is range string too, which is exactly why
       it is not used -- it cannot carry the precision claim.
 
@@ -1055,7 +1055,7 @@ classes:
 #    drug_type, inchi_key, max_clinical_stage, overall_clinical_stage,
 #    mechanism_of_action, parent_molecule, target_name, target_type,
 #    trial_clinical_stage, trial_drug, trial_quality_control, trial_start_date,
-#    trial_stop_reason, trial_stop_reason_category. Acceptance check 18 lists them
+#    trial_stop_reason, trial_stop_reason_category. Acceptance check 22 lists them
 #    with statement counts every run, so the model repo can triage by how much
 #    rides on each -- trial_drug alone is 337,760 statements. That warning is the
 #    intended to-do list.
