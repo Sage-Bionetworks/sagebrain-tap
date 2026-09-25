@@ -210,16 +210,46 @@ class Labels(unittest.TestCase):
             "synonyms": [{"label": "AZD-6244", "source": "ChEMBL"}],
             "tradeNames": [{"label": "KOSELUGO", "source": "ChEMBL"}],
         }
-        self.assertEqual(labels_of(row), [
+        self.assertEqual(labels_of(row)[0], [
             ("SELUMETINIB", "preferred_name", "open-targets"),
             ("AZD-6244", "synonym", "ChEMBL"),
             ("KOSELUGO", "trade_name", "ChEMBL"),
         ])
 
     def test_blank_and_missing_label_lists_are_skipped(self):
-        self.assertEqual(labels_of({"name": "", "synonyms": None, "tradeNames": []}), [])
-        self.assertEqual(labels_of({"name": "X", "synonyms": [{"label": "  "}]}),
+        self.assertEqual(labels_of({"name": "", "synonyms": None, "tradeNames": []}),
+                         ([], []))
+        self.assertEqual(labels_of({"name": "X", "synonyms": [{"label": "  "}]})[0],
                          [("X", "preferred_name", "open-targets")])
+
+    def test_a_label_with_a_control_character_is_rejected_not_cleaned(self):
+        """Three exist at 26.06, all upstream mojibake of a trademark sign.
+        Stripping the NUL from 'verorab\x00ae' yields 'verorabae' -- two
+        fragments fused into a word no source wrote, which would match nothing
+        and, if it ever matched, would match falsely."""
+        usable, rejected = labels_of({
+            "name": "VERORAB",
+            "synonyms": [{"label": "verorab\x00ae", "source": "ChEMBL"},
+                         {"label": "rabies vaccine", "source": "ChEMBL"}],
+        })
+        self.assertEqual(usable, [("VERORAB", "preferred_name", "open-targets"),
+                                  ("rabies vaccine", "synonym", "ChEMBL")])
+        self.assertEqual(rejected, [("verorab\x00ae", "synonym", "ChEMBL")])
+
+    def test_tab_and_newline_are_not_control_characters_here(self):
+        """TurtleWriter escapes those properly, so they are safe to emit."""
+        self.assertFalse(common.has_control_characters("a\tb\nc\r"))
+        for bad in ("\x00", "\x01", "\x1f", "\x7f", "\x9f"):
+            self.assertTrue(common.has_control_characters(f"x{bad}y"), repr(bad))
+
+    def test_literal_refuses_control_characters_as_a_backstop(self):
+        """Turtle PERMITS a NUL inside a quoted string, so it loads and then
+        breaks whatever reads the graph back. Nothing should reach this after
+        labels_of, which is why it fails rather than cleaning up quietly."""
+        self.assertEqual(common.literal("safe"), '"safe"')
+        with self.assertRaises(common.IngestError) as caught:
+            common.literal("verorab\x00ae")
+        self.assertIn("control character", str(caught.exception))
 
     def test_preferred_name_outranks_synonym(self):
         """One row per candidate keeps a consumer's ambiguity count honest."""

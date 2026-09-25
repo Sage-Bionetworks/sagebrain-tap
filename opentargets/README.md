@@ -160,7 +160,7 @@ label	label_folded	kind	source	chembl_id	molecule_name	drug_type	ambiguous
 AZD-6244	azd-6244	synonym	ChEMBL	CHEMBL1614701	SELUMETINIB	Small molecule	no
 ```
 
-101,198 rows over 22,407 molecules, 97,838 distinct folded labels of which 2,607 are
+101,195 rows over 22,407 molecules, 97,835 distinct folded labels of which 2,607 are
 ambiguous. Ambiguity is recorded, not resolved: `(+)-epicatechin` is one molecule's
 preferred name and its enantiomer's synonym, and picking one silently would turn an
 unresolvable string into a confident wrong answer.
@@ -182,7 +182,7 @@ field conventions.
 | Indication edges | 86,468 — 11,364 drugs × 3,749 diseases, 11,175 at APPROVAL |
 | Trials | 193,469 of 230,990 — 337,760 drug and 177,344 condition links; 21,876 with a stop reason, all `TERMINATED`/`WITHDRAWN`/`SUSPENDED` |
 | Disease/phenotype nodes | 4,059 — 3,749 from indications, 310 only a trial reaches |
-| Release graph | 2,645,420 triples |
+| Release graph | 2,645,417 triples |
 
 See [`manifests/26.06-acceptance.md`](manifests/26.06-acceptance.md). Nineteen
 structural checks pass; the model-term review warns that 17 `sagebrain:` terms are

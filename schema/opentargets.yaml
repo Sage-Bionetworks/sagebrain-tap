@@ -390,7 +390,7 @@ slots:
     multivalued: true
     description: >-
       Every synonym and trade name the release gives a compound. This is the
-      layer's payload, not decoration: 22,407 molecules carry 101,198
+      layer's payload, not decoration: 22,407 molecules carry 101,195
       (label, molecule) pairs, and that index is what lets SELUMETINIB and
       AZD-6244 resolve to the same CHEMBL1614701 -- something no amount of string
       matching between two local datasets can do.
@@ -400,6 +400,12 @@ slots:
       molecule carries only its own labels and the exported TSV flags the fork.
       Collapsing them would turn an unresolvable string into a confident wrong
       answer.
+
+      Three synonyms are dropped rather than emitted, for the same reason in
+      reverse: they carry a NUL where the source meant a registered-trademark
+      sign, and stripping the byte fuses two fragments into a word no source
+      wrote ("verorab\x00ae" -> "verorabae"). See labels_of in
+      transform_molecules.py; they are listed in reports/rejected_labels.tsv.
 
   in_taxon:
     slot_uri: biolink:in_taxon

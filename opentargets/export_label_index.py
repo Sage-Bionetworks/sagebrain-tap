@@ -60,6 +60,7 @@ def build(input_dir: Path) -> tuple[list[tuple], dict]:
     data = read_dataset(input_dir, "drug_molecule", COLUMNS)
     rows: list[tuple] = []
     by_folded: dict[str, set[str]] = {}
+    skipped = 0
 
     for batch in data.to_batches(columns=COLUMNS, batch_size=20_000):
         for row in batch.to_pylist():
@@ -75,7 +76,12 @@ def build(input_dir: Path) -> tuple[list[tuple], dict]:
             # and a consumer counting candidates would see ambiguity that is not
             # there. The contract is: one row = one candidate molecule.
             best: dict[str, tuple] = {}
-            for label, kind, source in labels_of(row):
+            # Same rejection as molecules.ttl, from the same function, so the
+            # TSV and the RDF cannot disagree about which labels exist. A NUL in
+            # a TSV field is worse than in Turtle: it has no escape at all.
+            usable, rejected = labels_of(row)
+            skipped += len(rejected)
+            for label, kind, source in usable:
                 folded = label.casefold()
                 rank = KIND_RANK[kind]
                 current = best.get(folded)
@@ -89,6 +95,9 @@ def build(input_dir: Path) -> tuple[list[tuple], dict]:
     ambiguous = {folded for folded, ids in by_folded.items() if len(ids) > 1}
     rows = [r + ("yes" if r[1] in ambiguous else "no",) for r in rows]
     rows.sort(key=lambda r: (r[1], r[4], r[2]))
+    if skipped:
+        log(f"  {skipped} label(s) skipped for control characters; "
+            f"transform_molecules lists them in reports/rejected_labels.tsv")
     stats = {
         "rows": len(rows),
         "distinct_labels": len(by_folded),

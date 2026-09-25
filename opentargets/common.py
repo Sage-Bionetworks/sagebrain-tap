@@ -40,10 +40,10 @@ from shared.rdf import (  # noqa: F401
     NAMESPACES,
     IngestError,
     iri,
-    literal,
     log,
     typed_literal,
 )
+from shared.rdf import literal as _literal
 from shared.rdf import TurtleWriter as _TurtleWriter
 from shared.rdf import expand as _expand_with_prefixes
 
@@ -342,6 +342,49 @@ def drug_type_class(drug_type: str) -> str:
 def disease_node_class(disease_id: str) -> str:
     prefix = disease_id.partition("_")[0]
     return DISEASE_NODE_CLASS.get(prefix, DISEASE_NODE_CLASS_DEFAULT)
+
+
+#: Control characters that must never reach a literal or an exported TSV.
+#:
+#: C0 and C1, minus tab, newline and carriage return, which ``TurtleWriter``
+#: escapes properly. Turtle's grammar actually PERMITS most of these inside a
+#: quoted string -- it excludes only ``"``, ``\``, LF and CR -- which is exactly
+#: why they need catching here: a NUL loads into Oxigraph without complaint and
+#: then truncates strings in whatever reads the graph next.
+#:
+#: Measured at 26.06: three ``drug_molecule`` synonyms carry a NUL where the
+#: source meant a registered-trademark sign -- ``verorab\x00ae``,
+#: ``celecoxib 200mg (celebrex\x00 200, pfizer, usa)`` and one with two. Upstream
+#: mojibake, not something this ingest introduced.
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def has_control_characters(value: str) -> bool:
+    return bool(CONTROL_CHARACTERS.search(value))
+
+
+def literal(value: str) -> str:
+    """``shared.rdf.literal``, refusing text no consumer could read back.
+
+    A backstop, not the handler. Where this ingest knows what a corrupt string
+    means it decides deliberately and reports -- ``labels_of`` drops the three
+    affected synonyms and lists them. Everywhere else, a control character is a
+    condition the ingest has never seen, and the rule for those here is the same
+    as for an unknown vocabulary value: fail and make someone choose, rather than
+    emit something that parses and is wrong.
+
+    Not pushed down into ``shared.rdf`` because that would change Reactome's
+    behaviour too, on data this has not been checked against.
+    """
+    if has_control_characters(value):
+        raise IngestError(
+            f"Refusing to emit a literal containing control character(s): "
+            f"{value!r}. Turtle permits most of them inside a quoted string, so "
+            "this would load and then break whatever read it back. Decide at the "
+            "call site whether to drop the value or repair it -- see labels_of in "
+            "opentargets/transform_molecules.py for the one case already decided."
+        )
+    return _literal(value)
 
 
 def check_vocabulary(value: str, allowed: frozenset[str], what: str, constant: str) -> str:

@@ -48,8 +48,10 @@ Nine are in the layout gate; the other four are present and unused.
 A node per molecule — `biolink:SmallMolecule` for the 18,124 small molecules,
 `biolink:ChemicalEntity` for the other ten modalities — plus the preferred name,
 every synonym and trade name as `skos:altLabel`, structures, modality, overall stage
-and parent. Separately, `exports/chembl_labels.tsv`: 101,198 (label, molecule) rows,
-97,838 distinct folded labels, 2,607 of them ambiguous.
+and parent. Separately, `exports/chembl_labels.tsv`: 101,195 (label, molecule) rows,
+97,835 distinct folded labels, 2,607 of them ambiguous. Three synonyms are dropped
+for carrying a NUL where the source meant a registered-trademark sign; they are
+listed in `reports/rejected_labels.tsv`.
 
 ## Quirks
 

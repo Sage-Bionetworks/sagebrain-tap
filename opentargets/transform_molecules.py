@@ -33,12 +33,14 @@ from pathlib import Path
 
 from .common import (
     DEFAULT_RELEASE,
+    IngestError,
     TurtleWriter,
     check_vocabulary,
     CLINICAL_STAGES,
     chembl_curie,
     drug_type_class,
     expand,
+    has_control_characters,
     iri,
     literal,
     log,
@@ -46,33 +48,59 @@ from .common import (
     typed_literal,
 )
 
+#: Fail if more than this fraction of labels are dropped for control characters.
+#: Measured at 26.06: 3 of 101,201, or 0.003%. A breach at 0.1% would be roughly
+#: a hundred labels, which is an encoding change rather than stray mojibake.
+MAX_REJECTED_LABEL_FRACTION = 0.001
+
 COLUMNS = ["id", "name", "drugType", "inchiKey", "canonicalSmiles",
            "synonyms", "tradeNames", "parentId", "maximumClinicalStage"]
 
 
-def labels_of(row: dict) -> list[tuple[str, str, str]]:
-    """Every label for one molecule as ``(label, kind, source)``.
+def labels_of(row: dict) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str]]]:
+    """Every label for one molecule, as ``(usable, rejected)``.
 
-    `synonyms` and `tradeNames` are lists of ``{label, source}``; the preferred
-    `name` has no source of its own and is attributed to the release.
+    Each entry is ``(label, kind, source)``. `synonyms` and `tradeNames` are
+    lists of ``{label, source}``; the preferred `name` has no source of its own
+    and is attributed to the release.
+
+    A label carrying a control character is rejected rather than cleaned. Three
+    exist at 26.06, all upstream mojibake of a registered-trademark sign, and
+    stripping the byte is not the harmless repair it looks like:
+    ``verorab\x00ae`` becomes ``verorabae``, fusing two fragments into a word no
+    source ever wrote. That is the "confident wrong answer" this ingest refuses
+    everywhere else -- it would match nothing, and if it ever did match it would
+    match falsely. Nor is the corruption consistent enough to repair: one label
+    has ``\x00ae``, one a bare ``\x00``, one two NULs in a row, so recovering the
+    sign would mean guessing differently each time.
+
+    So they are dropped and RETURNED, not discarded, and the caller writes them
+    out. The molecule keeps its preferred name and every other synonym.
     """
-    out: list[tuple[str, str, str]] = []
+    usable: list[tuple[str, str, str]] = []
+    rejected: list[tuple[str, str, str]] = []
     name = (row.get("name") or "").strip()
     if name:
-        out.append((name, "preferred_name", "open-targets"))
+        (rejected if has_control_characters(name) else usable).append(
+            (name, "preferred_name", "open-targets"))
     for kind, column in (("synonym", "synonyms"), ("trade_name", "tradeNames")):
         for item in row.get(column) or []:
             label = (item.get("label") or "").strip()
-            if label:
-                out.append((label, kind, (item.get("source") or "").strip()))
-    return out
+            if not label:
+                continue
+            entry = (label, kind, (item.get("source") or "").strip())
+            (rejected if has_control_characters(label) else usable).append(entry)
+    return usable, rejected
 
 
-def transform(input_dir: Path, out_path: Path) -> dict:
+def transform(input_dir: Path, out_path: Path,
+              reports_dir: Path | None = None) -> dict:
     data = read_dataset(input_dir, "drug_molecule", COLUMNS)
     stats = {"molecules": 0, "with_structure": 0, "labels": 0, "distinct_labels": 0,
-             "with_parent": 0, "ambiguous_labels": 0, "triples": 0}
+             "with_parent": 0, "ambiguous_labels": 0, "rejected_labels": 0,
+             "triples": 0}
     seen_labels: dict[str, set[str]] = {}
+    rejected_rows: list[tuple[str, str, str, str]] = []
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as handle:
@@ -132,7 +160,11 @@ def transform(input_dir: Path, out_path: Path) -> dict:
                 # repeats as one triple anyway; emitting them just inflates the file
                 # and the triple count that acceptance checks compare against.
                 emitted_here: set[str] = set()
-                for label, _kind, _source in labels_of(row):
+                usable, rejected = labels_of(row)
+                for label, kind, source in rejected:
+                    stats["rejected_labels"] += 1
+                    rejected_rows.append((chembl_id, kind, source, repr(label)))
+                for label, _kind, _source in usable:
                     seen_labels.setdefault(label.casefold(), set()).add(chembl_id)
                     stats["labels"] += 1
                     if label != name and label not in emitted_here:
@@ -146,6 +178,28 @@ def transform(input_dir: Path, out_path: Path) -> dict:
 
     stats["distinct_labels"] = len(seen_labels)
     stats["ambiguous_labels"] = sum(1 for ids in seen_labels.values() if len(ids) > 1)
+
+    total = stats["labels"] + stats["rejected_labels"]
+    if total and stats["rejected_labels"] / total > MAX_REJECTED_LABEL_FRACTION:
+        raise IngestError(
+            f"{stats['rejected_labels'] / total:.2%} of labels carry control "
+            f"characters, above the {MAX_REJECTED_LABEL_FRACTION:.1%} threshold. "
+            "At that rate this is an encoding change in the release rather than a "
+            "few mojibake trade marks, and dropping that many labels would quietly "
+            "gut the name index -- check the source before raising the bar."
+        )
+
+    if reports_dir is not None:
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        report = reports_dir / "rejected_labels.tsv"
+        report.write_text(
+            "chembl_id\tkind\tsource\tlabel_repr\n"
+            + "".join("\t".join(row) + "\n" for row in sorted(rejected_rows)),
+            encoding="utf-8")
+        if stats["rejected_labels"]:
+            log(f"  {stats['rejected_labels']} label(s) dropped for control "
+                f"characters -> {report}")
+
     log(f"  {stats['molecules']:,} molecules, {stats['with_structure']:,} with "
         f"InChIKey+SMILES, {stats['with_parent']:,} with a parent")
     log(f"  {stats['labels']:,} labels ({stats['distinct_labels']:,} distinct folded, "
@@ -166,7 +220,7 @@ def main() -> int:
     indir = args.indir or Path("opentargets/input") / args.release
     workdir = args.workdir or Path("opentargets") / args.release / "data"
     log(f"Transforming drug_molecule from {indir}")
-    transform(indir, workdir / "rdf" / "molecules.ttl")
+    transform(indir, workdir / "rdf" / "molecules.ttl", workdir / "reports")
     return 0
 
 
