@@ -1,9 +1,12 @@
 """Run the Open Targets drug-layer ingest end to end.
 
 Order: download -> verify layout -> molecules -> mechanisms -> indications ->
-label index -> load -> acceptance checks. The transforms are independent of each
-other (unlike Reactome's, where pathways writes the ID set the next two consume),
-so the order among them is only for readable logs.
+trials -> label index -> load -> acceptance checks. The transforms are independent
+of each other (unlike Reactome's, where pathways writes the ID set the next two
+consume), so the order among them is only for readable logs. Indications and trials
+split the disease pass between them, but each works that split out from the source
+columns rather than from the other's output, so even those two can run in either
+order.
 
 Acceptance checks run last and gate nothing after themselves, which is the point:
 a release that fails them has still written its Turtle, so the failure can be
@@ -74,6 +77,7 @@ def main() -> int:
     run("transform_molecules", release + indir + workdir)
     run("transform_mechanisms", release + indir + workdir + manifests + hgnc)
     run("transform_indications", release + indir + workdir)
+    run("transform_trials", release + indir + workdir)
     run("export_label_index", release + indir + workdir)
 
     ttl_dir = ["--ttl-dir", str(Path(args.workdir) / "rdf")] if args.workdir else []

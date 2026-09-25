@@ -32,8 +32,14 @@ count is the cheapest way to say so without ingesting `clinical_report` itself.
 `clinical_indication` mixes ontologies: 8,591 rows point at HP phenotype terms and
 430 at MP mouse-phenotype terms. Typing those `biolink:Disease` would be wrong, so
 `DISEASE_NODE_CLASS` decides from the id prefix. Nodes are emitted only for terms
-an indication actually references -- the release describes 47,080 terms, and the
-ones nothing points at are another source's job.
+something in this graph actually references -- the release describes 47,080 terms,
+and the ones nothing points at are another source's job.
+
+The disease pass is split with `transform_trials.py`, which references 3,841 terms
+of its own. This module emits the 3,749 an indication references; that one emits
+the 310 only a trial does. Each term is therefore asserted exactly once, and
+neither module needs the other's output to know which are its -- both work the
+split out from the source columns.
 
 Usage:
     python -m opentargets.transform_indications --release 26.06
@@ -53,41 +59,19 @@ from .common import (
     check_vocabulary,
     chembl_curie,
     disease_curie,
-    disease_node_class,
     expand,
     iri,
     literal,
+    load_disease_labels,
     log,
     read_dataset,
     typed_literal,
+    write_disease_nodes,
 )
 
 INDICATION_COLUMNS = ["drugId", "diseaseId", "maxClinicalStage", "clinicalReportIds"]
-DISEASE_COLUMNS = ["id", "name", "exactSynonyms", "therapeuticAreas"]
 
 XSD_INTEGER = "xsd:integer"
-
-
-def load_disease_labels(input_dir: Path) -> dict[str, dict]:
-    """Disease id -> label and exact synonyms, for the whole release.
-
-    Read in full because the referenced set is not known until the indications
-    have been scanned, and 47,080 terms of labels is small. Synonyms are kept:
-    "MPNST" and "malignant peripheral nerve sheath tumor" are the same term, and a
-    consumer matching free-text disease names needs both.
-    """
-    data = read_dataset(input_dir, "disease", DISEASE_COLUMNS)
-    labels: dict[str, dict] = {}
-    for batch in data.to_batches(columns=DISEASE_COLUMNS, batch_size=20_000):
-        for row in batch.to_pylist():
-            disease_id = (row.get("id") or "").strip()
-            if disease_id:
-                labels[disease_id] = {
-                    "name": (row.get("name") or "").strip(),
-                    "synonyms": [s.strip() for s in (row.get("exactSynonyms") or []) if s],
-                    "areas": [a.strip() for a in (row.get("therapeuticAreas") or []) if a],
-                }
-    return labels
 
 
 def transform(input_dir: Path, out_path: Path) -> dict:
@@ -146,20 +130,12 @@ def transform(input_dir: Path, out_path: Path) -> dict:
                 ])
                 stats["edges"] += 1
 
-        writer.comment("Disease and phenotype nodes for every term referenced above.")
-        for disease_id in sorted(referenced):
-            info = disease_labels.get(disease_id)
-            pairs = [("a", disease_node_class(disease_id))]
-            if info and info["name"]:
-                pairs.append(("rdfs:label", literal(info["name"])))
-            else:
-                # An indication pointing at a term the release does not describe is
-                # a dangling reference upstream. Emitted anyway, typed but unlabelled,
-                # so it is visible rather than dropped -- and counted below.
-                stats["unlabelled_diseases"] += 1
-            for synonym in sorted(set(info["synonyms"])) if info else []:
-                pairs.append(("skos:altLabel", literal(synonym)))
-            writer.statements(iri(expand(disease_curie(disease_id))), pairs)
+        writer.comment(
+            "Disease and phenotype nodes for every term referenced above.\n"
+            "transform_trials.py emits the 310 further terms that only a trial\n"
+            "references, so each term is asserted exactly once across the release.")
+        stats["unlabelled_diseases"] = write_disease_nodes(
+            writer, referenced, disease_labels)
 
         stats["diseases"] = len(referenced)
         stats["drugs"] = len(drugs)

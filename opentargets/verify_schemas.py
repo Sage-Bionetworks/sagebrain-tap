@@ -31,7 +31,11 @@ from .common import (
     DEFAULT_RELEASE,
     DISEASE_IRI_BASES,
     DRUG_TYPES,
+    REPORT_QUALITY_CONTROLS,
+    REPORT_TYPES,
     TARGET_TYPES,
+    TRIAL_OVERALL_STATUSES,
+    TRIAL_STOP_REASON_CATEGORIES,
     IngestError,
     log,
     read_dataset,
@@ -46,10 +50,25 @@ VOCABULARY_CHECKS = [
     ("drug_mechanism_of_action", "actionType", ACTION_TYPES, "ACTION_TYPES"),
     ("drug_mechanism_of_action", "targetType", TARGET_TYPES, "TARGET_TYPES"),
     ("clinical_indication", "maxClinicalStage", CLINICAL_STAGES, "CLINICAL_STAGES"),
-    # Audited even though clinical_report is not projected: it is the only dataset
-    # using PHASE_4 and WITHDRAWAL, and leaving it out of the gate meant the
-    # vocabulary looked complete while being short two values.
+    # clinical_report is the only dataset using PHASE_4 and WITHDRAWAL; the
+    # vocabulary looked complete while being short two values until it was gated.
     ("clinical_report", "clinicalStage", CLINICAL_STAGES, "CLINICAL_STAGES"),
+    # `type` is the trial layer's scope filter, so it is gated for the reason a
+    # filter always should be: a renamed or added record kind would change what
+    # the layer contains without changing a line of code.
+    ("clinical_report", "type", REPORT_TYPES, "REPORT_TYPES"),
+    # Filled on every trial and on nothing else, so the observed set here is
+    # exactly the trial set. It is also value-for-value identical to Biolink's
+    # ClinicalTrialStatusEnum, which is what lets the status use a Biolink slot.
+    ("clinical_report", "trialOverallStatus", TRIAL_OVERALL_STATUSES,
+     "TRIAL_OVERALL_STATUSES"),
+    # The two list-valued vocabularies the trial layer emits. Audited across ALL
+    # 289,955 rows, not just the trials in scope, so the constants describe the
+    # column rather than this release's slice of it.
+    ("clinical_report", "trialStopReasonCategories", TRIAL_STOP_REASON_CATEGORIES,
+     "TRIAL_STOP_REASON_CATEGORIES"),
+    ("clinical_report", "qualityControls", REPORT_QUALITY_CONTROLS,
+     "REPORT_QUALITY_CONTROLS"),
 ]
 
 
@@ -75,14 +94,24 @@ def verify_columns(input_dir: Path) -> list[dict]:
 
 
 def verify_vocabularies(input_dir: Path) -> tuple[list[dict], list[str]]:
-    """Check each controlled vocabulary against the release's actual values."""
+    """Check each controlled vocabulary against the release's actual values.
+
+    List-valued columns (``trialStopReasonCategories``, ``qualityControls``) are
+    flattened first, so a count is a value occurrence rather than a row. Both are
+    multivalued in the source -- a trial can carry three stop-reason categories --
+    and counting rows would understate the column without saying so.
+    """
+    import pyarrow as pa
     import pyarrow.compute as pc
 
     findings, failures = [], []
     for dataset, column, allowed, constant in VOCABULARY_CHECKS:
         data = read_dataset(input_dir, dataset, [column])
         table = data.to_table(columns=[column])
-        counts = pc.value_counts(table.column(column).combine_chunks())
+        values = table.column(column).combine_chunks()
+        if pa.types.is_list(values.type) or pa.types.is_large_list(values.type):
+            values = pc.list_flatten(values)
+        counts = pc.value_counts(values)
         observed = {}
         for item in counts:
             value = item["values"].as_py()

@@ -4,19 +4,22 @@ title: SageBrain Open Targets Drug-Layer Ingest
 description: >-
   LinkML definitions for the Open Targets Platform drug layer: ChEMBL compound
   nodes with their name/synonym/trade-name index, HGNC gene nodes, disease and
-  phenotype nodes, and the two reified associations that join them -- mechanism of
-  action and clinical indication.
+  phenotype nodes, the two reified associations that join them -- mechanism of
+  action and clinical indication -- and the clinical trials behind those
+  indications.
 
   Scope is the drug axis. Target-disease association SCORES are deliberately
   absent: they are opinionated composites over heterogeneous evidence, useful for
   ranking and wrong to treat as evidence, and a graph that carries them invites
   the misuse where a number is quoted without what produced it.
 
-  clinical_report -- the trials, labels and regulatory records behind each
-  indication -- is pinned and layout-gated but not projected. Indication edges
-  carry a report COUNT instead, which is enough to distinguish a stage backed by
-  fourteen reports from one backed by a single record. Projecting the reports is
-  additive and attaches to the compound and disease URIs minted here.
+  clinical_report holds four kinds of record and only one of them is projected.
+  Trials become nodes; curated resources, drug labels and regulatory records stay
+  out, because none of them has an identifier that survives a release -- trial
+  ids are uniformly nct<digits>, while the rest mix DailyMed UUIDs, sha256 hashes
+  and raw strings such as 019909s020lbl.pdf. Indication edges keep their report
+  COUNT as well, since that count is over all four kinds and the trial nodes are
+  only one of them.
 
 license: https://creativecommons.org/publicdomain/zero/1.0/
 default_prefix: sagebrain
@@ -25,12 +28,13 @@ default_range: string
 prefixes:
   # One model namespace, owned by ontology/main/sagebrain.ttl in the
   # sagebrain-model repo. A term this ingest needs before the model has ratified
-  # it is minted here anyway and reported by acceptance check 11.
+  # it is minted here anyway and reported by acceptance check 18.
   # See shared/rdf.py NAMESPACES and opentargets/common.py PREFIXES.
   sagebrain: https://w3id.org/synapse/sagebrain#
   linkml: https://w3id.org/linkml/
   biolink: https://w3id.org/biolink/vocab/
   CHEMBL: "https://identifiers.org/chembl:"
+  CLINICALTRIALS: "https://identifiers.org/clinicaltrials:"
   ENSEMBL: "https://identifiers.org/ensembl:"
   HGNC: "https://identifiers.org/hgnc:"
   EFO: http://www.ebi.ac.uk/efo/
@@ -52,9 +56,23 @@ imports:
 # Pinned Biolink version, matching the Reactome ingest. biolink:SmallMolecule,
 # biolink:ChemicalEntity, biolink:ChemicalToGeneAssociation,
 # biolink:ChemicalToDiseaseOrPhenotypicFeatureAssociation, biolink:affects,
-# biolink:treats_or_applied_or_studied_to_treat, biolink:original_object and
-# biolink:primary_knowledge_source were all verified present in this release
-# before the slots below were finalised.
+# biolink:treats_or_applied_or_studied_to_treat, biolink:original_object,
+# biolink:primary_knowledge_source, biolink:ClinicalTrial,
+# biolink:clinical_trial_conditions and biolink:clinical_trial_overall_status
+# were all verified present in this release before the slots below were finalised.
+# The last is the strongest fit in the schema: its range ClinicalTrialStatusEnum
+# is value-for-value identical to the 13 statuses Open Targets uses, checked in
+# both directions against the pinned release.
+#
+# Three Biolink slots for clinical trials were checked and NOT used, each for a
+# stated reason rather than by omission:
+#   * clinical_trial_interventions -- range is `clinical intervention`, and these
+#     compounds are ChemicalEntity. See trial_drug.
+#   * clinical_trial_phase -- range is ResearchPhaseEnum, a different vocabulary
+#     from Open Targets' clinicalStage, which also carries APPROVAL and UNKNOWN.
+#     See trial_clinical_stage.
+#   * clinical_trial_start_date -- range is string, which cannot carry the
+#     month-precision claim the datatype makes. See trial_start_date.
 settings:
   biolink_version: 4.4.4
   opentargets_release: "26.06"
@@ -69,11 +87,15 @@ enums:
       26.06 and enforced -- a value outside this set is a hard error at transform
       time, never a default and never dropped.
 
-      Two of these values appear only in clinical_report, which is pinned and gated
-      but not projected: PHASE_4 (30,509 rows) and WITHDRAWAL (866). They are listed
-      because the vocabulary gate audits that column too, and a set covering only
-      the projected datasets would pass today and fail the moment reports are
-      projected.
+      Two of these values appear only in clinical_report: PHASE_4 (30,509 rows) and
+      WITHDRAWAL (866). Neither reaches a trial node at 26.06 -- the in-scope trials
+      use nine of the thirteen values, PHASE_4 being the notable one at 28,465 --
+      so the set is wider than any single slot's observed range by design.
+
+      Three slots carry values from this enum and they are NOT interchangeable:
+      max_clinical_stage scopes to a drug-disease pair, overall_clinical_stage to a
+      molecule, and trial_clinical_stage to one trial. Acceptance check 10 fails if
+      any subject carries more than one of them.
 
       CLINICAL_STAGE_ORDER in opentargets/common.py orders the development axis so
       "highest stage reached" is expressible without a consumer hardcoding it.
@@ -107,11 +129,14 @@ enums:
       PHASE_4:
         description: >-
           Post-marketing study. Implies approval, and is collapsed into APPROVAL at
-          the compound level by the source. Only clinical_report uses it.
+          the compound level by the source. Only clinical_report uses it, so it
+          reaches the graph on trial_clinical_stage and nowhere else -- 28,465 of
+          the 193,469 trial nodes.
       WITHDRAWAL:
         description: >-
           Withdrawn. A terminal outcome, not a development stage -- see the note
-          above on why it carries no rank. Only clinical_report uses it.
+          above on why it carries no rank. Only clinical_report uses it, and only on
+          records outside the trial layer's scope, so no slot carries it at 26.06.
 
   TargetTypeEnum:
     description: >-
@@ -204,6 +229,127 @@ enums:
       Protein:
       "Vaccine component":
       Unknown:
+
+  ReportTypeEnum:
+    description: >-
+      The four kinds of record in clinical_report, all observed at 26.06. Not
+      emitted -- this enum is the scope filter, recorded so the filter is a
+      declared vocabulary rather than a bare string comparison buried in a
+      transform. A renamed or added kind fails the layout gate.
+
+      Only CLINICAL_TRIAL is projected. The decision is about identity, not about
+      value: trial ids are uniformly nct<digits> with no exceptions, while the
+      other three kinds mix DailyMed UUIDs, sha256 hashes and raw strings used as
+      keys (019909s020lbl.pdf, a01ab02, and one row whose id is a bare FDA URL).
+      A node keyed on any of those would not be the same node next release.
+    permissible_values:
+      CLINICAL_TRIAL:
+        description: 230,990 rows at 26.06, all sourced from AACT. The only kind projected.
+      CURATED_RESOURCE:
+        description: 38,125 rows from TTD, ATC, USAN, INN, WHO and DOI.
+      DRUG_LABEL:
+        description: 16,029 rows from DailyMed and FDA.
+      REGULATORY_AGENCY:
+        description: 4,811 rows from PMDA, EMA, FDA, Health Canada and MHRA.
+
+  TrialStopReasonCategoryEnum:
+    description: >-
+      Open Targets' classification of trialWhyStopped free text, all 13 values at
+      26.06. Multivalued: a trial can carry up to three.
+
+      This is the trial history that a maximum clinical stage cannot preserve. An
+      indication edge reading PHASE_3 cannot say the phase-3 trial was halted for
+      futility, and that distinction is the reason the trial layer exists. 21,876
+      in-scope trials carry a stop reason, and the pairing with the free text is
+      exact in both directions -- no row has text without a category, and none has
+      a category without text.
+
+      Uncategorised, No_Context and Invalid_Reason are the SOURCE's values for
+      "the text did not classify", not this ingest's fallback. Nothing here is a
+      default: an unseen value fails the vocabulary gate like any other.
+    permissible_values:
+      Insufficient_Enrollment:
+        description: 7,202 in-scope trials, the largest category.
+      Business_Administrative:
+      Negative:
+        description: Stopped on results -- futility, or an interim analysis that read against the drug.
+      Study_Design:
+      Logistics_Resources:
+      Invalid_Reason:
+        description: The stated reason was not a stop reason.
+      Another_Study:
+      Safety_Sideeffects:
+        description: 793 in-scope trials. The category a safety question actually wants.
+      Study_Staff_Moved:
+      Covid19:
+      Regulatory:
+      Uncategorised:
+        description: The source could not classify the text. Not a missing value.
+      No_Context:
+
+  ReportQualityControlEnum:
+    description: >-
+      Flags Open Targets raises against a report, all four values at 26.06.
+      Multivalued: a trial can carry up to three, and 88,815 of 193,469 carry at
+      least one.
+
+      All four are emitted, not just the two that matter upstream.
+      PHASE_IV_NOT_APPROVED and INDIRECT_PRIMARY_PURPOSE are what exclude a report
+      from clinical_indication; emitting only those would let a consumer reproduce
+      the release's filter but never relax it, and would read as though the other
+      two flags did not exist.
+    permissible_values:
+      UNVALIDATED_INDICATION:
+        description: 44,204 in-scope trials. Does not gate clinical_indication.
+      INDIRECT_PRIMARY_PURPOSE:
+        description: 42,616 in-scope trials. Gates clinical_indication.
+      NO_DISEASE:
+        description: 15,272 in-scope trials. Does not gate clinical_indication.
+      PHASE_IV_NOT_APPROVED:
+        description: 13,640 in-scope trials. Gates clinical_indication.
+
+  ClinicalTrialStatusEnum:
+    description: >-
+      The trial's overall recruitment or availability state, all 13 values at
+      26.06. Exactly one per trial: the column is 100% filled on CLINICAL_TRIAL
+      rows and empty on every other record kind.
+
+      These 13 are value-for-value identical to Biolink's own
+      ClinicalTrialStatusEnum in the pinned 4.4.4 release -- nothing in one that is
+      missing from the other -- which is why the status rides on a Biolink slot
+      while the stage and start date take local ones.
+
+      Status is what makes a stop reason interpretable. All 21,876 stop reasons in
+      the release sit on TERMINATED (15,460), WITHDRAWN (5,934) or SUSPENDED (482),
+      and "Negative" means something different on a trial that halted midway than
+      on one that never enrolled a participant. Acceptance check 19 enforces that
+      pairing rather than trusting it.
+
+      Note the overlap in spelling with ClinicalStageEnum: WITHDRAWN here is a
+      trial that never started, while WITHDRAWAL there is a drug pulled after
+      approval. Different columns, different subjects, unrelated facts.
+    permissible_values:
+      COMPLETED:
+        description: 113,351 in-scope trials. Ended normally.
+      UNKNOWN:
+        description: 23,351 in-scope trials. The registry has no current status, not a phase claim.
+      TERMINATED:
+        description: 17,492 in-scope trials. Stopped prematurely and will not restart.
+      RECRUITING:
+      ACTIVE_NOT_RECRUITING:
+      WITHDRAWN:
+        description: 7,032 in-scope trials. Halted before enrolling its first participant.
+      NOT_YET_RECRUITING:
+        description: >-
+          6,238 in-scope trials. Why most future start dates are real: 121 of the
+          150 trials starting 2027-2030 hold this status.
+      ENROLLING_BY_INVITATION:
+      SUSPENDED:
+        description: Temporarily halted, may resume. The third status that can carry a stop reason.
+      NO_LONGER_AVAILABLE:
+      APPROVED_FOR_MARKETING:
+      AVAILABLE:
+      TEMPORARILY_NOT_AVAILABLE:
 
   TaxonEnum:
     description: >-
@@ -393,7 +539,10 @@ slots:
 
       It also flattens history within one pair: a maximum over reports cannot say
       that a phase-3 trial was stopped. clinical_report_count is the cheap signal
-      for how much is behind the value; the reports themselves are not projected.
+      for how much is behind the value, and the trial nodes are where that history
+      actually lives -- though they cover only the CLINICAL_TRIAL reports naming a
+      ChEMBL-resolved drug, so the count and the reachable trials do not have to
+      agree.
 
   clinical_report_count:
     slot_uri: sagebrain:clinical_report_count
@@ -402,8 +551,149 @@ slots:
     description: >-
       How many clinical reports Open Targets lists for this drug-disease pair. A
       stage backed by fourteen reports and one backed by a single record are not
-      equally load-bearing, and this is the cheapest way to say so without
-      ingesting clinical_report.
+      equally load-bearing.
+
+      Retained now that trials are projected, and not redundant with them: the
+      count is over all four record kinds, while trial nodes cover only
+      CLINICAL_TRIAL records that name a ChEMBL-resolved drug. A pair whose count
+      exceeds the trials reachable from it has evidence this layer does not
+      represent, and the two numbers disagreeing is information rather than a bug.
+
+  trial_clinical_stage:
+    slot_uri: sagebrain:trial_clinical_stage
+    range: ClinicalStageEnum
+    required: true
+    description: >-
+      The stage of THIS trial, from the source's clinicalStage column.
+
+      The third and narrowest of the three stage slots, and the one that makes the
+      other two legible: max_clinical_stage is a maximum over the reports behind a
+      drug-disease pair, and this is one of those reports. 28,465 trials are
+      PHASE_4, a value no other slot in this graph carries, because the source
+      collapses phase 4 into APPROVAL at the compound level.
+
+      Named trial_ rather than clinical_stage for the reason overall_clinical_stage
+      is named that way: three slots whose confusion yields a plausible wrong answer
+      need more than a few characters between them. Acceptance check 10 fails if any
+      subject carries two of the three.
+
+      NOT biolink:clinical_trial_phase, whose range ResearchPhaseEnum is a different
+      vocabulary and cannot express APPROVAL or UNKNOWN.
+
+  clinical_trial_overall_status:
+    slot_uri: biolink:clinical_trial_overall_status
+    range: ClinicalTrialStatusEnum
+    required: true
+    description: >-
+      The trial's overall status, from the source's trialOverallStatus column.
+      Exactly one per trial. See ClinicalTrialStatusEnum.
+
+      Biolink's own slot, used because it fits without compromise: domain
+      `clinical trial`, and a range enum whose 13 values match Open Targets' 13
+      exactly. Emitted for the same reason as trial_stop_reason_category -- it is
+      the other half of that fact. A stop reason without a status cannot
+      distinguish a trial that halted midway from one that never enrolled anyone,
+      and the maximum clinical stage on the indication edge preserves neither.
+
+  trial_start_date:
+    slot_uri: sagebrain:trial_start_date
+    range: string
+    description: >-
+      When the trial started, to the MONTH, emitted as an xsd:gYearMonth literal.
+
+      The source column is a date32 and its day is manufactured for older records:
+      92.6% of pre-2000 and 91.7% of 2000-2009 start dates fall on the last day of
+      a month, against 10.5% for 2020 and later, because the registry value is
+      YYYY-MM and normalisation supplies the day. Across all trials 57.7% land on
+      the first or last of a month where a uniform spread would give about 6.6%.
+      Truncating to year-month is not a loss -- it is a refusal to assert a day the
+      release invented, and the datatype is what carries that claim.
+
+      Range is checked separately from precision. Dates outside 1950 through ten
+      years past the release are dropped as placeholders (one 1931 row and three
+      beyond 2040, up to 2099-01-01, nearly all on trials that never began) and
+      listed in reports/implausible_trial_dates.tsv; the trial node is still
+      emitted, without a date. The window deliberately clears real planned starts:
+      150 trials begin in 2027-2030 and 121 of those are NOT_YET_RECRUITING. The
+      184 pre-1990 dates are genuine retrospective registrations, including NHLBI
+      trials from the 1960s.
+
+      Declared range string because LinkML has no gYearMonth type; the emitted
+      literal is typed xsd:gYearMonth and acceptance check 17 enforces that.
+      biolink:clinical_trial_start_date is range string too, which is exactly why
+      it is not used -- it cannot carry the precision claim.
+
+  trial_stop_reason:
+    slot_uri: sagebrain:trial_stop_reason
+    description: >-
+      The registry's free text for why the trial stopped, verbatim: "Closed early
+      for futility.", "2 DLTs had been reported from first 4 patients on lowest
+      possible dose cohort." Present on 21,876 in-scope trials, always alongside at
+      least one trial_stop_reason_category.
+
+      Kept as well as the category because the category is a 13-way bucket and the
+      text is the evidence for it. "Negative" does not distinguish an interim
+      futility analysis from a failed primary endpoint; the sentence does.
+
+  trial_stop_reason_category:
+    slot_uri: sagebrain:trial_stop_reason_category
+    range: TrialStopReasonCategoryEnum
+    multivalued: true
+    description: >-
+      Open Targets' classification of the stop reason. Up to three per trial;
+      23,786 values over 21,876 trials. See TrialStopReasonCategoryEnum.
+
+  trial_quality_control:
+    slot_uri: sagebrain:trial_quality_control
+    range: ReportQualityControlEnum
+    multivalued: true
+    description: >-
+      Quality-control flags Open Targets raises against this report. Up to three
+      per trial; 115,732 values over 88,815 trials. See ReportQualityControlEnum
+      for why all four values are emitted rather than only the two that gate
+      clinical_indication upstream.
+
+  trial_drug:
+    slot_uri: sagebrain:trial_drug
+    range: Compound
+    multivalued: true
+    required: true
+    description: >-
+      A compound this trial tests. 337,760 links over 193,469 trials and 9,578
+      distinct molecules, every one of them already a node in this graph -- the
+      scope filter is precisely "at least one drug resolved to ChEMBL", so a trial
+      node cannot dangle on this side.
+
+      Local rather than biolink:clinical_trial_interventions, whose range is
+      `clinical intervention`. These objects are biolink:ChemicalEntity and
+      biolink:SmallMolecule; this ingest does not even type them biolink:Drug (see
+      the Compound class). Emitting a Biolink slot whose declared range the objects
+      do not satisfy would be a range lie, and this layer keeps the asymmetry with
+      clinical_trial_conditions visible instead.
+
+      What absence means: 37,521 trials are excluded because no drug they name
+      carries a ChEMBL id, and they concentrate in cell, tissue, microbiota and
+      blood-product therapies -- mesenchymal stem cells, CAR-T, platelet-rich
+      plasma, faecal microbiota transplant, convalescent plasma -- plus class-level
+      names like "antibiotics". Within the trials that are here, a further 16,474
+      drug mentions carry no id. No trial node means no ChEMBL identity, NOT no
+      trial.
+
+  clinical_trial_conditions:
+    slot_uri: biolink:clinical_trial_conditions
+    range: DiseaseOrPhenotypicFeature
+    multivalued: true
+    description: >-
+      A disease or phenotype this trial studies. 177,344 links over 3,841 terms.
+
+      Biolink's own slot, whose domain (clinical trial) and range (disease or
+      phenotypic feature) both fit exactly -- unlike the intervention side. Used
+      in preference to a local slot wherever Biolink is faithful.
+
+      50,971 in-scope trials map no disease at all and carry none of these; they
+      are drug-only trial nodes rather than dropped records, because the absence is
+      the source's. A further 61,777 disease mentions inside in-scope trials carry
+      no ontology id.
 
 # ── classes ───────────────────────────────────────────────────────────────────
 
@@ -481,11 +771,17 @@ classes:
       wrong), and GO and OBA terms take this union class rather than being forced
       either way.
 
-      Nodes exist only for the 3,749 terms an indication references, not for all
-      47,080 terms the release describes; the rest are another source's job. A
-      prefix with no registered IRI base raises rather than being guessed, because
-      a disease id turned into a wrong IRI joins to nothing and reads as absent
-      data rather than as an error.
+      Nodes exist for the 4,059 terms an indication or a trial references, not for
+      all 47,080 terms the release describes; the rest are another source's job.
+      The two axes overlap heavily but not completely: indications reference 3,749
+      terms and trials 3,841, and 310 of the trials' reach the graph only because
+      a trial names them (184 MONDO, 59 HP, 56 EFO, 4 OBA, 4 GO, 3 Orphanet).
+      indications.ttl emits the indication-referenced terms and trials.ttl emits
+      exactly that remainder, so every term is asserted once.
+
+      A prefix with no registered IRI base raises rather than being guessed,
+      because a disease id turned into a wrong IRI joins to nothing and reads as
+      absent data rather than as an error.
     slots:
       - id
       - name
@@ -575,11 +871,75 @@ classes:
 
           This is also why sagebrain:used_to_treat is NOT used here: the model
           declares it rdfs:subPropertyOf biolink:treats, so emitting it for a
-          sub-approval indication would entail the strong claim anyway. See the
+          sub-approval indication would entail the strong claim. See the
           open decision below.
         equals_string: "biolink:treats_or_applied_or_studied_to_treat"
       primary_knowledge_source:
         equals_string: "infores:open-targets"
+
+  ClinicalTrial:
+    class_uri: biolink:ClinicalTrial
+    description: >-
+      One clinical trial from clinical_report, identified by its ClinicalTrials.gov
+      accession. 193,469 nodes at 26.06, all sourced from AACT.
+
+      A NODE, not a reified association, unlike everything else in this schema that
+      joins two entities. Mechanisms and indications are associations because each
+      IS an assertion with a subject and an object. A trial is a study -- an event
+      that happened, with properties -- and the drugs and diseases hang off it as
+      node properties. Modelling it as an association would also have cost roughly
+      3M triples for the drug x disease cross product, but the shape is the reason;
+      the arithmetic merely agrees.
+
+      What this adds that indications cannot. 80,145 of these trials are new to the
+      graph; the other 113,324 sit behind indication edges that previously carried
+      only sagebrain:clinical_report_count. A maximum clinical stage flattens
+      history within a drug-disease pair -- it cannot say that the phase-3 trial was
+      halted, and 21,876 of these trials record exactly that. Joining a trial back
+      to its indication edge is a join on (trial_drug, clinical_trial_conditions)
+      against (subject, object); clinicalReportIds is not emitted, so the graph does
+      not assert the link directly. See the open decision below.
+
+      Scope is two filters, both about identity rather than merit: type =
+      CLINICAL_TRIAL, and at least one drug resolved to ChEMBL. See ReportTypeEnum
+      and trial_drug for what each leaves out and why absence must not be read as
+      evidence of absence.
+    slots:
+      - id
+      - name
+      - trial_clinical_stage
+      - clinical_trial_overall_status
+      - trial_start_date
+      - trial_stop_reason
+      - trial_stop_reason_category
+      - trial_quality_control
+      - trial_drug
+      - clinical_trial_conditions
+    slot_usage:
+      id:
+        pattern: "^CLINICALTRIALS:NCT\\d{8}$"
+        description: >-
+          ClinicalTrials.gov accession, e.g. CLINICALTRIALS:NCT02407405.
+          identifiers.org registers `clinicaltrials` with pattern ^NCT\d{8}$ and
+          Biolink's clinical trial class lists the same prefix. The source spells
+          it lowercase (nct02407405); the case is normalised on the way out, and a
+          report id that is not an NCT accession fails rather than minting an IRI
+          that resolves nowhere.
+
+          The url column is not emitted: it is
+          https://clinicaltrials.gov/study/<NCT> on every in-scope row, derivable
+          from this id. It is read anyway, and deviations counted, so that stays a
+          checked claim.
+      name:
+        required: false
+        description: >-
+          The registry's official title, from trialOfficialTitle. Absent on 3,282
+          of 193,469 trials, and deliberately not substituted: the source's `title`
+          column fills those gaps with generated text ("Report in Phase 3 stage for
+          2 molecules and Retinitis Pigmentosa"), which is derived, not a name the
+          registry gave the trial. An unlabelled node is better than a fabricated
+          label. Where trialOfficialTitle is present, `title` is byte-identical to
+          it on every row.
 
   Dataset:
     class_uri: void:Dataset
@@ -647,12 +1007,32 @@ classes:
 #    subjects biolink:Drug so the domain inference is sound rather than accidental.
 #    That is a modelling decision for review, not a mechanical addition.
 #
-# 2. Eleven slots here are minted under sagebrain: and not yet defined in
+# 2. Seventeen slots here are minted under sagebrain: and not yet defined in
 #    sagebrain-model: action_type, canonical_smiles, clinical_report_count,
 #    drug_type, inchi_key, max_clinical_stage, overall_clinical_stage,
-#    mechanism_of_action, parent_molecule, target_name, target_type. Acceptance
-#    check 10 lists them with statement counts every run, so the model repo can
-#    triage by how much rides on each. That warning is the intended to-do list.
+#    mechanism_of_action, parent_molecule, target_name, target_type,
+#    trial_clinical_stage, trial_drug, trial_quality_control, trial_start_date,
+#    trial_stop_reason, trial_stop_reason_category. Acceptance check 18 lists them
+#    with statement counts every run, so the model repo can triage by how much
+#    rides on each -- trial_drug alone is 337,760 statements. That warning is the
+#    intended to-do list.
+#
+# 4. clinicalReportIds is still not emitted, so nothing in the graph states which
+#    trials an indication edge was computed from. A consumer joins the two sides on
+#    (drug, disease) instead, which is nearly but not exactly the same set: the
+#    indication's report list spans all four record kinds and is filtered on two
+#    quality-control flags, while trial nodes are trials only and unfiltered.
+#    Emitting the ids would make the link exact and would also let a consumer see
+#    which reports behind an indication are NOT trials. The cost is that indication
+#    associations are blank nodes, so the edge would have to point at the trial
+#    rather than the reverse, and 147,845 such links is not free. Left open.
+#
+# 5. trialLiterature -- 337,018 PMIDs over 83,501 rows, 255,869 distinct, with
+#    5,491 nulls inside the lists -- is read by nothing and is therefore absent
+#    from both this schema and the layout gate, like crossReferences. It is the
+#    obvious next addition to the trial layer: it would let a trial node cite the
+#    publications reporting it, which is the one kind of evidence this layer
+#    currently points at only through the registry URL it does not emit.
 #
 # 3. crossReferences (PubChem, DrugBank, ...) is read by nothing yet and is
 #    therefore absent from both this schema and the layout gate's required

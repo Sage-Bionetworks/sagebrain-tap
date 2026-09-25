@@ -90,7 +90,9 @@ class Vocabularies(unittest.TestCase):
         self.assertIn("CLINICAL_STAGE_ORDER", str(caught.exception))
 
     def test_report_only_stages_are_still_enforced(self):
-        """clinical_report is not projected, but its vocabulary is still gated."""
+        """No trial carries either value at 26.06, yet both stay enforced:
+        PHASE_4 is on 28,465 trial nodes and WITHDRAWAL on none, and a set that
+        tracked only what a release happens to use would fail on the next one."""
         for stage in ("PHASE_4", "WITHDRAWAL"):
             common.check_vocabulary(stage, common.CLINICAL_STAGES,
                                     "clinicalStage", "CLINICAL_STAGES")
@@ -106,6 +108,99 @@ class Vocabularies(unittest.TestCase):
         self.assertEqual(common.drug_type_class("Small molecule"),
                          "biolink:SmallMolecule")
         self.assertEqual(common.drug_type_class("Antibody"), "biolink:ChemicalEntity")
+
+
+class TrialIdentifiers(unittest.TestCase):
+    def test_lowercase_source_id_becomes_a_registry_accession(self):
+        """The source spells it nct02407405; every registry spells it NCT02407405."""
+        self.assertEqual(common.trial_curie("nct02407405"),
+                         "CLINICALTRIALS:NCT02407405")
+        self.assertEqual(common.expand(common.trial_curie("nct02407405")),
+                         "https://identifiers.org/clinicaltrials:NCT02407405")
+
+    def test_non_trial_report_ids_raise(self):
+        """The three unprojected record kinds key on anything at all, which is
+        exactly why they are out of scope. Any of them reaching trial_curie means
+        the scope filter leaked, so it fails rather than minting a dead IRI."""
+        for report_id in ("019909s020lbl.pdf", "a01ab02",
+                          "https://www.fda.gov/some/label", "nct1234567",
+                          "NCT123456789", ""):
+            with self.assertRaises(common.IngestError, msg=report_id):
+                common.trial_curie(report_id)
+
+    def test_uppercase_input_is_accepted_unchanged(self):
+        self.assertEqual(common.trial_curie("NCT02407405"),
+                         "CLINICALTRIALS:NCT02407405")
+
+
+class TrialStartWindow(unittest.TestCase):
+    def test_window_runs_from_1950_to_ten_years_past_the_release(self):
+        self.assertEqual(common.trial_start_window("26.06"), (1950, 2036))
+        self.assertEqual(common.trial_start_window("30.12"), (1950, 2040))
+
+    def test_window_clears_planned_starts_but_catches_placeholders(self):
+        """Range and precision are separate questions; this is the range one.
+        150 trials start in 2027-2030 and are real; 2099-01-01 is not."""
+        earliest, latest = common.trial_start_window("26.06")
+        for year in (1962, 1999, 2026, 2030):
+            self.assertTrue(earliest <= year <= latest, year)
+        for year in (1900, 1931, 2040, 2099):
+            self.assertFalse(earliest <= year <= latest, year)
+
+    def test_malformed_release_raises_rather_than_guessing_a_year(self):
+        for release in ("2026.06", "26", "v26.06", "26.6"):
+            with self.assertRaises(common.IngestError, msg=release):
+                common.release_year(release)
+
+
+class TrialVocabularies(unittest.TestCase):
+    def test_only_clinical_trials_are_projected(self):
+        self.assertIn(common.TRIAL_RECORD_TYPE, common.REPORT_TYPES)
+        self.assertEqual(len(common.REPORT_TYPES), 4)
+
+    def test_source_own_unclassified_values_are_members_not_fallbacks(self):
+        """Uncategorised and No_Context are values the release assigns. Treating
+        either as a default would hide a genuinely new category behind it."""
+        for value in ("Uncategorised", "No_Context", "Invalid_Reason"):
+            common.check_vocabulary(value, common.TRIAL_STOP_REASON_CATEGORIES,
+                                    "trialStopReasonCategories",
+                                    "TRIAL_STOP_REASON_CATEGORIES")
+        with self.assertRaises(common.IngestError) as caught:
+            common.check_vocabulary("Funding_Withdrawn",
+                                    common.TRIAL_STOP_REASON_CATEGORIES,
+                                    "trialStopReasonCategories",
+                                    "TRIAL_STOP_REASON_CATEGORIES")
+        self.assertIn("TRIAL_STOP_REASON_CATEGORIES", str(caught.exception))
+
+    def test_all_four_quality_controls_are_emitted_not_just_the_gating_pair(self):
+        """Emitting only the gating flags would let a consumer reproduce the
+        release's indication filter but never relax it."""
+        self.assertTrue(common.INDICATION_GATING_QUALITY_CONTROLS
+                        < common.REPORT_QUALITY_CONTROLS)
+        self.assertEqual(len(common.REPORT_QUALITY_CONTROLS), 4)
+        self.assertEqual(common.INDICATION_GATING_QUALITY_CONTROLS,
+                         {"PHASE_IV_NOT_APPROVED", "INDIRECT_PRIMARY_PURPOSE"})
+
+    def test_clinical_report_is_projected_and_gates_what_trials_read(self):
+        spec = common.DATASETS["clinical_report"]
+        self.assertTrue(spec.projected)
+        for column in ("trialOfficialTitle", "trialOverallStatus",
+                       "qualityControls", "trialStopReasonCategories",
+                       "trialStartDate"):
+            self.assertIn(column, spec.required_columns)
+
+    def test_statuses_that_can_carry_a_stop_reason_are_a_strict_subset(self):
+        self.assertTrue(common.TRIAL_STOPPED_STATUSES
+                        < common.TRIAL_OVERALL_STATUSES)
+        self.assertEqual(len(common.TRIAL_OVERALL_STATUSES), 13)
+
+    def test_withdrawn_trial_and_withdrawal_stage_are_unrelated_facts(self):
+        """Near-identical spellings on different columns and different subjects:
+        a trial that never enrolled anyone, versus a drug pulled after approval."""
+        self.assertIn("WITHDRAWN", common.TRIAL_OVERALL_STATUSES)
+        self.assertNotIn("WITHDRAWAL", common.TRIAL_OVERALL_STATUSES)
+        self.assertIn("WITHDRAWAL", common.CLINICAL_STAGES)
+        self.assertNotIn("WITHDRAWN", common.CLINICAL_STAGES)
 
 
 class Labels(unittest.TestCase):

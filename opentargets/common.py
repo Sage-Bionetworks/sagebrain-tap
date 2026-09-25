@@ -15,6 +15,13 @@ Open Targets differs from Reactome in three ways that shape this module.
    are one kind of node across the graph; this ingest resolves Ensembl to HGNC
    for the same reason, and keeps the Ensembl id on the association. Measured at
    26.06: 1,548 of 1,550 mechanism targets resolve (99.9%).
+4. **One dataset holds four kinds of record with four kinds of key.**
+   ``clinical_report`` mixes trials, curated resources, drug labels and
+   regulatory records. Trial ids are uniformly ``nct<digits>``; the rest are
+   DailyMed UUIDs, sha256 hashes and raw strings used as keys. So the scope
+   filter here is about IDENTITY rather than merit -- a node keyed on a sha256
+   would not be the same node next release -- and ``REPORT_TYPES`` is gated so
+   that filter cannot change meaning silently.
 
 Controlled vocabularies below are recorded as complete sets, observed at 26.06,
 and membership is enforced. That is the Reactome species/evidence discipline: a
@@ -24,6 +31,7 @@ it silently, and a silent drop looks like sparse data rather than a bug.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -72,7 +80,10 @@ class Dataset:
     name: str
     required_columns: frozenset[str]
     note: str
-    #: False for datasets pinned and gated but not yet projected to RDF.
+    #: False for a dataset pinned and gated but not projected to RDF. Every
+    #: dataset is projected at 26.06 -- ``clinical_report`` was the last holdout
+    #: and the trial layer closed it -- but the flag stays, because pinning a
+    #: dataset before projecting it is the normal way a layer starts here.
     projected: bool = True
 
 
@@ -104,13 +115,16 @@ DATASETS: dict[str, Dataset] = {
         name="clinical_report",
         required_columns=frozenset({
             "id", "type", "source", "clinicalStage", "drugs", "diseases",
-            "trialWhyStopped", "trialStopReasonCategories", "hasExpertReview",
+            "trialOfficialTitle", "trialOverallStatus", "trialWhyStopped",
+            "trialStopReasonCategories", "qualityControls", "hasExpertReview",
             "trialStartDate", "url",
         }),
         note="Evidence behind each indication: trials, labels, regulatory records. "
-             "Pinned and gated; not projected in the first pass -- indications carry "
-             "a report COUNT, and the reports themselves are a layer of their own",
-        projected=False,
+             "Only type=CLINICAL_TRIAL is projected, and only where a drug resolved "
+             "to ChEMBL; the other three kinds have no identifier that survives a "
+             "release. source/hasExpertReview/url are gated and read but not emitted "
+             "-- they are constant or derivable over the projected scope, and reading "
+             "them is what keeps that claim checked",
     ),
     "disease": Dataset(
         name="disease",
@@ -197,6 +211,89 @@ TARGET_TYPES = frozenset({
     "selectivity group", "single protein",
 })
 SINGLE_TARGET_TYPES = frozenset({"single protein", "chimeric protein", "nucleic-acid"})
+
+#: The four record kinds in ``clinical_report``, all observed at 26.06.
+#:
+#: The trial layer projects ``CLINICAL_TRIAL`` and nothing else. The other three
+#: are provenance about a drug rather than trial evidence, and none of them has an
+#: identifier that survives a release: trial ids are uniformly ``nct<digits>``,
+#: while curated resources, drug labels and regulatory records mix DailyMed UUIDs,
+#: sha256 hashes and raw strings such as ``019909s020lbl.pdf`` or a bare URL.
+#:
+#: Gated rather than assumed, because the scope filter is a string comparison. A
+#: renamed or added kind would silently change what the trial layer contains, and
+#: an ingest that quietly narrows its own scope looks like a source that shrank.
+REPORT_TYPES = frozenset({
+    "CLINICAL_TRIAL", "CURATED_RESOURCE", "DRUG_LABEL", "REGULATORY_AGENCY",
+})
+
+#: The one record kind the trial layer projects.
+TRIAL_RECORD_TYPE = "CLINICAL_TRIAL"
+
+#: ``trialStopReasonCategories``, all 13 observed at 26.06.
+#:
+#: This is the trial history a maximum stage cannot preserve: an indication edge
+#: saying PHASE_3 cannot say that the phase-3 trial was halted for futility. The
+#: column pairs perfectly with the free text -- every row with ``trialWhyStopped``
+#: carries at least one category and no row carries a category without the text --
+#: and a trial can carry up to three.
+#:
+#: ``Uncategorised`` and ``No_Context`` are the source's own values for "the text
+#: did not classify", not this ingest's fallback. ``Invalid_Reason`` likewise means
+#: the stated reason was not a stop reason at all. None of them is a default: an
+#: unseen value fails, as everywhere else.
+TRIAL_STOP_REASON_CATEGORIES = frozenset({
+    "Another_Study", "Business_Administrative", "Covid19",
+    "Insufficient_Enrollment", "Invalid_Reason", "Logistics_Resources",
+    "Negative", "No_Context", "Regulatory", "Safety_Sideeffects",
+    "Study_Design", "Study_Staff_Moved", "Uncategorised",
+})
+
+#: ``trialOverallStatus``, all 13 observed at 26.06. Exactly one per trial: the
+#: column is 100% filled on ``CLINICAL_TRIAL`` rows and empty on every other kind.
+#:
+#: This set is **value-for-value identical** to Biolink's ``ClinicalTrialStatusEnum``
+#: in the pinned 4.4.4 release -- nothing in one that is missing from the other --
+#: which is why the status is emitted under ``biolink:clinical_trial_overall_status``
+#: rather than a local slot. It is the one clinical-trial slot in Biolink whose
+#: domain AND range both fit this data without a compromise; see
+#: ``transform_trials`` for the three that do not.
+#:
+#: Status is what makes a stop reason interpretable. At 26.06 all 21,876 stop
+#: reasons sit on TERMINATED (15,460), WITHDRAWN (5,934) or SUSPENDED (482), and a
+#: category of "Negative" means something different on a trial that halted midway
+#: than on one that never enrolled a participant.
+TRIAL_OVERALL_STATUSES = frozenset({
+    "ACTIVE_NOT_RECRUITING", "APPROVED_FOR_MARKETING", "AVAILABLE", "COMPLETED",
+    "ENROLLING_BY_INVITATION", "NO_LONGER_AVAILABLE", "NOT_YET_RECRUITING",
+    "RECRUITING", "SUSPENDED", "TEMPORARILY_NOT_AVAILABLE", "TERMINATED",
+    "UNKNOWN", "WITHDRAWN",
+})
+
+#: The statuses that can carry a stop reason. Every one of the 21,876 stopped
+#: trials at 26.06 holds one of these, which is an invariant worth checking rather
+#: than assuming: a stop reason on a COMPLETED trial would mean the two columns had
+#: come apart, and the free text would be describing something other than a stop.
+TRIAL_STOPPED_STATUSES = frozenset({"TERMINATED", "WITHDRAWN", "SUSPENDED"})
+
+#: ``qualityControls``, all four observed at 26.06. A report can carry up to three.
+#:
+#: These are the flags Open Targets itself raises against a report. All four are
+#: emitted, not just the two that matter downstream, so a consumer can reproduce
+#: the release's own indication filter or deliberately relax it -- with only the
+#: gating pair in the graph, relaxing would be impossible and reproducing would
+#: look like the whole story.
+REPORT_QUALITY_CONTROLS = frozenset({
+    "INDIRECT_PRIMARY_PURPOSE", "NO_DISEASE", "PHASE_IV_NOT_APPROVED",
+    "UNVALIDATED_INDICATION",
+})
+
+#: The subset of ``qualityControls`` that excludes a report from
+#: ``clinical_indication`` upstream. Recorded so the filter is documented in code
+#: rather than only in prose; nothing in this ingest applies it.
+INDICATION_GATING_QUALITY_CONTROLS = frozenset({
+    "PHASE_IV_NOT_APPROVED", "INDIRECT_PRIMARY_PURPOSE",
+})
 
 #: ``drugType`` values, all 11 observed at 26.06.
 DRUG_TYPES = frozenset({
@@ -290,6 +387,7 @@ def stage_rank(stage: str) -> int:
 PREFIXES = {
     **NAMESPACES,
     "CHEMBL": "https://identifiers.org/chembl:",
+    "CLINICALTRIALS": "https://identifiers.org/clinicaltrials:",
     "ENSEMBL": "https://identifiers.org/ensembl:",
     "EFO": "http://www.ebi.ac.uk/efo/",
     "obo": "http://purl.obolibrary.org/obo/",
@@ -325,6 +423,67 @@ DISEASE_IRI_BASES = {
     "UBERON": "obo",
     "GSSO": "obo",
 }
+
+
+#: What a ``clinical_report`` id looks like when the record is a trial. Lowercase
+#: in the source, uppercase in every registry, so the case is normalised on the
+#: way out -- identifiers.org registers ``clinicaltrials`` with pattern
+#: ``^NCT\d{8}$``, and Biolink's ``clinical trial`` class lists the same prefix.
+TRIAL_ID_PATTERN = re.compile(r"nct\d{8}", re.IGNORECASE)
+
+#: Earliest plausible trial start. The 184 pre-1990 dates in 26.06 are genuine
+#: retrospective registrations, including NHLBI trials from the 1960s, so the
+#: floor sits below them rather than at a round modern year.
+TRIAL_START_MIN_YEAR = 1950
+
+#: How far past a release a start date may sit before it reads as a placeholder.
+#: Future dates are mostly real -- 150 trials start in 2027-2030 and 121 of those
+#: are NOT_YET_RECRUITING -- so the ceiling has to clear planned starts while
+#: still catching 2099-01-01 on a trial that never began.
+TRIAL_START_FUTURE_YEARS = 10
+
+
+def trial_curie(report_id: str) -> str:
+    """``nct02407405`` -> ``CLINICALTRIALS:NCT02407405``.
+
+    Raises on anything else. The whole trial layer rests on this id being a
+    registry accession: it is what makes a trial node survive a release, and it
+    is why the other three ``clinical_report`` kinds are out of scope. A report
+    id that is not an NCT number means the scope filter let through something it
+    should not have, so it fails here rather than minting an IRI that resolves
+    nowhere.
+    """
+    value = report_id.strip()
+    if not TRIAL_ID_PATTERN.fullmatch(value):
+        raise IngestError(
+            f"Report id {report_id!r} is not an NCT accession. Only "
+            f"type={TRIAL_RECORD_TYPE} records are in scope and every one of them "
+            "is keyed on nct<8 digits> -- check the scope filter and "
+            "TRIAL_ID_PATTERN in opentargets/common.py before widening either."
+        )
+    return f"CLINICALTRIALS:{value.upper()}"
+
+
+def release_year(release: str) -> int:
+    """``26.06`` -> 2026. Open Targets releases are ``YY.MM``."""
+    year, _, month = release.partition(".")
+    if not (year.isdigit() and len(year) == 2 and month.isdigit() and len(month) == 2):
+        raise IngestError(
+            f"Release {release!r} is not in Open Targets' YY.MM form, so the year "
+            "it names cannot be read. Pass --release 26.06 or update release_year "
+            "in opentargets/common.py if the scheme changed."
+        )
+    return 2000 + int(year)
+
+
+def trial_start_window(release: str) -> tuple[int, int]:
+    """Years a ``trialStartDate`` may fall in, inclusive.
+
+    Range is a separate question from precision, and this is the range half. The
+    window isolates placeholder dates -- 1900-01-31, 2099-01-01 -- without
+    discarding the planned starts that make up almost all of the future dates.
+    """
+    return TRIAL_START_MIN_YEAR, release_year(release) + TRIAL_START_FUTURE_YEARS
 
 
 def chembl_curie(chembl_id: str) -> str:
@@ -429,6 +588,57 @@ def iter_rows(input_dir: Path, name: str, columns: list[str],
     data = read_dataset(input_dir, name, columns)
     for batch in data.to_batches(columns=columns, batch_size=batch_size):
         yield from batch.to_pylist()
+
+
+#: Columns the disease-label pass reads.
+DISEASE_LABEL_COLUMNS = ["id", "name", "exactSynonyms", "therapeuticAreas"]
+
+
+def load_disease_labels(input_dir: Path) -> dict[str, dict]:
+    """Disease id -> label and exact synonyms, for the whole release.
+
+    Read in full because the referenced set is not known until the referencing
+    dataset has been scanned, and 47,080 terms of labels is small. Synonyms are
+    kept: "MPNST" and "malignant peripheral nerve sheath tumor" are the same
+    term, and a consumer matching free-text disease names needs both.
+
+    Shared by the indication and trial transforms, which reference overlapping
+    but different term sets -- 3,749 and 3,841 of them, union 4,059. One loader
+    so the two passes cannot drift in what a disease node carries.
+    """
+    data = read_dataset(input_dir, "disease", DISEASE_LABEL_COLUMNS)
+    labels: dict[str, dict] = {}
+    for batch in data.to_batches(columns=DISEASE_LABEL_COLUMNS, batch_size=20_000):
+        for row in batch.to_pylist():
+            disease_id = (row.get("id") or "").strip()
+            if disease_id:
+                labels[disease_id] = {
+                    "name": (row.get("name") or "").strip(),
+                    "synonyms": [s.strip() for s in (row.get("exactSynonyms") or []) if s],
+                    "areas": [a.strip() for a in (row.get("therapeuticAreas") or []) if a],
+                }
+    return labels
+
+
+def write_disease_nodes(writer: "TurtleWriter", disease_ids, labels: dict[str, dict]) -> int:
+    """Emit one typed node per disease id. Returns how many had no label.
+
+    An id pointing at a term the release does not describe is a dangling
+    reference upstream. Emitted anyway, typed but unlabelled, so it is visible
+    rather than dropped -- and counted, so the caller can report it.
+    """
+    unlabelled = 0
+    for disease_id in sorted(disease_ids):
+        info = labels.get(disease_id)
+        pairs = [("a", disease_node_class(disease_id))]
+        if info and info["name"]:
+            pairs.append(("rdfs:label", literal(info["name"])))
+        else:
+            unlabelled += 1
+        for synonym in sorted(set(info["synonyms"])) if info else []:
+            pairs.append(("skos:altLabel", literal(synonym)))
+        writer.statements(iri(expand(disease_curie(disease_id))), pairs)
+    return unlabelled
 
 
 # ── Ensembl -> HGNC ───────────────────────────────────────────────────────────

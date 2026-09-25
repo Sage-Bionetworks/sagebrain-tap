@@ -1,12 +1,12 @@
 """Replace an Open Targets release graph in Oxigraph and write VoID provenance.
 
-The three Turtle parts go into ``urn:sagebrain:opentargets:<release>``; ``void.ttl``
+The four Turtle parts go into ``urn:sagebrain:opentargets:<release>``; ``void.ttl``
 goes into the default graph, as with Reactome. Reloading replaces only that
 release's graph, so releases can sit side by side.
 
 The VoID block carries the caveats a consumer cannot recover from the triples: what
 ``maxClinicalStage`` does and does not mean, what a family-level mechanism edge
-claims, and which pinned dataset is deliberately not projected yet. Those notes are
+claims, and what the trial layer's scope filters leave out. Those notes are
 the difference between a layer that is used correctly and one that is quoted out of
 context, so they live in the graph rather than only in a README.
 """
@@ -32,16 +32,38 @@ from .common import (
     typed_literal,
 )
 
-TTL_PARTS = ("molecules.ttl", "mechanisms.ttl", "indications.ttl")
+TTL_PARTS = ("molecules.ttl", "mechanisms.ttl", "indications.ttl", "trials.ttl")
 
 SCOPE_NOTE = (
     "Open Targets Platform drug layer: ChEMBL molecules with their name/synonym/"
     "trade-name index, mechanism-of-action edges to genes, and clinical indications "
     "with the maximum clinical stage reached. Target-disease association SCORES are "
     "deliberately not ingested -- they are opinionated composites, useful for ranking "
-    "and wrong to treat as evidence. clinical_report is pinned and layout-gated but "
-    "not projected: indication edges carry a report COUNT instead, and the reports "
-    "themselves (trials, labels, stop reasons) are a layer of their own."
+    "and wrong to treat as evidence. The clinical_report layer projects TRIALS only: "
+    "curated resources, drug labels and regulatory records are pinned and gated but "
+    "have no identifier that survives a release."
+)
+
+TRIAL_NOTE = (
+    "Trial nodes cover type=CLINICAL_TRIAL records naming at least one "
+    "ChEMBL-resolved drug: 193,469 of the release's 230,990 trials, all from AACT. "
+    "The 37,521 excluded trials do name a drug but carry no ChEMBL id for it, and "
+    "they concentrate in cell, tissue, microbiota and blood-product therapies, so "
+    "absence of a trial node is an identity limit inherited from ChEMBL and NOT "
+    "evidence that no trial exists. 50,971 in-scope trials map no disease at all "
+    "and are drug-only nodes. sagebrain:trial_clinical_stage is scoped to one "
+    "trial and is a third slot distinct from both max_clinical_stage (a "
+    "drug-disease pair) and overall_clinical_stage (a molecule)."
+)
+
+TRIAL_DATE_NOTE = (
+    "sagebrain:trial_start_date is xsd:gYearMonth, not a date, because the "
+    "release's day component is manufactured: 92.6% of pre-2000 and 91.7% of "
+    "2000-2009 start dates fall on the last day of a month, against 10.5% for 2020 "
+    "and later, because the source value is YYYY-MM and normalisation supplies the "
+    "day. Month precision is what the release actually carries. Dates outside 1950 "
+    "through ten years past the release are dropped as placeholders and listed in "
+    "reports/implausible_trial_dates.tsv; the trial node is still emitted."
 )
 
 STAGE_NOTE = (
@@ -126,7 +148,8 @@ def build_void(release: str, metadata: dict, triples: int, run_date: str,
                       iri(f"https://pubmed.ncbi.nlm.nih.gov/{metadata['citation_pmid']}/")))
     # Each caveat as its own comment: a consumer reading one does not have to read
     # a single wall of text to find the one that applies to their query.
-    for note in (PREDICATE_NOTE, TARGET_TYPE_NOTE, GENE_KEY_NOTE):
+    for note in (PREDICATE_NOTE, TARGET_TYPE_NOTE, GENE_KEY_NOTE, TRIAL_NOTE,
+                 TRIAL_DATE_NOTE):
         pairs.append(("rdfs:comment", literal(note)))
     if not anchor:
         log("WARNING: no provenance anchor in release.json -- VoID will not record "

@@ -1,8 +1,8 @@
 # Open Targets Platform
 
-ChEMBL molecule identity, mechanism-of-action edges to genes, and clinical
-indications with the stage each reached — as RDF, from the Open Targets Platform
-release files.
+ChEMBL molecule identity, mechanism-of-action edges to genes, clinical
+indications with the stage each reached, and the 193,469 clinical trials behind
+them — as RDF, from the Open Targets Platform release files.
 
 Target–disease association *scores* are outside the current drug-layer scope.
 A future ranking use case could incorporate these composite scores alongside
@@ -59,9 +59,10 @@ restore the pinned archive rather than substituting HGNC's mutable latest file.
 | `transform_molecules` | `molecules.ttl` — ChEMBL nodes, preferred names, synonyms, trade names, structures |
 | `transform_mechanisms` | `mechanisms.ttl` — compound→gene edges and HGNC gene nodes; unresolved ids in `reports/` |
 | `transform_indications` | `indications.ttl` — compound→disease edges with stage, and disease/phenotype nodes |
+| `transform_trials` | `trials.ttl` — clinical trial nodes with stage, status, start month, stop reasons and quality flags; trial-only disease nodes; dropped dates in `reports/` |
 | `export_label_index` | `exports/chembl_labels.tsv` — label→ChEMBL id, for consumers resolving free text |
 | `load_graph` | Release graph and `void.ttl` metadata in the default graph |
-| `acceptance_checks` | Eleven checks: node typing, edge resolution, vocabularies, gene keying, size, known facts, stage-slot separation, model terms |
+| `acceptance_checks` | Twenty checks: node typing, edge resolution, vocabularies, gene keying, size, known facts, stage-slot separation, trial keying/links/dates/status, model terms |
 
 Every module supports `python -m opentargets.<module> --help`.
 See [design decisions](DESIGN.md), [source dataset notes](datasets/) and
@@ -102,7 +103,7 @@ reports drift and never edits the pin.
 
 ## Reading the graph correctly
 
-Three things the triples cannot tell you, all also recorded in VoID:
+Five things the triples cannot tell you, all also recorded in VoID:
 
 - **`sagebrain:max_clinical_stage` belongs to an edge, not a drug.** It is the maximum
   over the reports behind one drug–disease pair. A drug that failed phase 3 for one
@@ -123,9 +124,31 @@ Three things the triples cannot tell you, all also recorded in VoID:
   At 26.06 group edges outnumber single-protein edges 9,506 to 5,202, so counting
   drug–target pairs without filtering over-counts by roughly two thirds.
 
+- **A missing trial node is an identity limit, not evidence of no trial.** Only
+  `type = CLINICAL_TRIAL` records naming a ChEMBL-resolved drug become nodes:
+  193,469 of the release's 230,990 trials. The 37,521 excluded ones *do* name a
+  drug — they just have no ChEMBL id for it — and they concentrate in cell,
+  tissue, microbiota and blood-product therapies (mesenchymal stem cells, CAR-T,
+  platelet-rich plasma, faecal microbiota transplant, convalescent plasma). A
+  further 50,971 in-scope trials map no disease at all and are drug-only nodes.
+- **`sagebrain:trial_start_date` is a month, and says so.** It is typed
+  `xsd:gYearMonth` because the source's day is manufactured for older records:
+  92.6% of pre-2000 start dates fall on the last day of a month, against 10.5%
+  for 2020 and later. Four placeholder dates (1931, and three beyond 2040) are
+  dropped and listed in `reports/implausible_trial_dates.tsv`; those trials keep
+  their node.
+
 Genes are HGNC-keyed, so they join Reactome's gene nodes by IRI with no mapping
 table; the Ensembl id Open Targets used is kept on each edge as
 `biolink:original_object`.
+
+There are **three** clinical-stage slots, narrowest last:
+`sagebrain:overall_clinical_stage` on a molecule,
+`sagebrain:max_clinical_stage` on a drug–disease edge, and
+`sagebrain:trial_clinical_stage` on one trial. Acceptance check 10 fails if any
+subject carries more than one. 28,465 trials are `PHASE_4`, a value no other slot
+in the graph carries, because the source collapses phase 4 into `APPROVAL` at the
+compound level.
 
 ## The label index
 
@@ -157,11 +180,14 @@ field conventions.
 | Mechanism edges | 14,708 over 1,548 HGNC gene nodes (689 duplicate rows collapsed) |
 | Ensembl→HGNC | 15,397 of 15,404 lookups resolved; 2 distinct unresolved ids |
 | Indication edges | 86,468 — 11,364 drugs × 3,749 diseases, 11,175 at APPROVAL |
-| Release graph | 1,005,963 triples |
+| Trials | 193,469 of 230,990 — 337,760 drug and 177,344 condition links; 21,876 with a stop reason, all `TERMINATED`/`WITHDRAWN`/`SUSPENDED` |
+| Disease/phenotype nodes | 4,059 — 3,749 from indications, 310 only a trial reaches |
+| Release graph | 2,645,420 triples |
 
-See [`manifests/26.06-acceptance.md`](manifests/26.06-acceptance.md). Eleven checks pass;
-the model-term review warns that 11 `sagebrain:` terms are not yet defined in
-sagebrain-model, which is the intended to-do list rather than a failure.
+See [`manifests/26.06-acceptance.md`](manifests/26.06-acceptance.md). Nineteen
+structural checks pass; the model-term review warns that 17 `sagebrain:` terms are
+not yet defined in sagebrain-model, which is the intended to-do list rather than a
+failure.
 
 ## A trap worth knowing
 
